@@ -16,7 +16,7 @@ export default function Home() {
 
  const TOTAL_FRAMES = 695;
 const INITIAL_FRAMES = 100;
-const BATCH_SIZE = 40;
+const BATCH_SIZE = 200;
 
 const [frame, setFrame] = useState(1);
 const [loadedFrames, setLoadedFrames] = useState(0);
