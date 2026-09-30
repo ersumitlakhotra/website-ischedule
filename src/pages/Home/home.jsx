@@ -259,10 +259,6 @@ useEffect(() => {
              * Give the browser a small break between batches.
              */
 
-            await new Promise((resolve) => {
-                setTimeout(resolve, 20);
-            });
-
             startFrame = endFrame + 1;
 
         }
