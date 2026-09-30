@@ -13,8 +13,9 @@ import {
 
 export default function Home() {
     const TOTAL_FRAMES = 695;
-    const INITIAL_FRAMES = 120;
-    const BATCH_SIZE = 15;
+    const INITIAL_FRAMES = 100;
+    const BATCH_SIZE = 50;
+    const LOAD_TRIGGER = 30;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
@@ -28,6 +29,8 @@ export default function Home() {
 
     const imageCache = useRef([]);
     const loadingFrames = useRef(new Set());
+    const loadedBatches = useRef(new Set());
+
     const cancelledRef = useRef(false);
 
     /*
@@ -42,7 +45,7 @@ export default function Home() {
 
     /*
     ============================================================
-    LOAD FRAME
+    LOAD SINGLE FRAME
     ============================================================
     */
 
@@ -69,13 +72,9 @@ export default function Home() {
                     return;
                 }
 
-                imageCache.current[
-                    frameNumber - 1
-                ] = image;
+                imageCache.current[frameNumber - 1] = image;
 
-                setLoadedFrames((previous) =>
-                    previous + 1
-                );
+                setLoadedFrames((previous) => previous + 1);
 
                 resolve();
             };
@@ -84,152 +83,158 @@ export default function Home() {
                 loadingFrames.current.delete(frameNumber);
 
                 if (!cancelledRef.current) {
-                    setLoadedFrames((previous) =>
-                        previous + 1
-                    );
+                    setLoadedFrames((previous) => previous + 1);
                 }
 
                 resolve();
             };
 
-            image.src =
-                getFramePath(frameNumber);
+            image.src = getFramePath(frameNumber);
         });
     };
 
     /*
     ============================================================
-    INITIAL PRELOAD
+    BATCH CALCULATION
+    ============================================================
+    */
+
+    const getBatchRange = (batchNumber) => {
+        if (batchNumber === 0) {
+            return {
+                start: 1,
+                end: INITIAL_FRAMES,
+            };
+        }
+
+        const start =
+            INITIAL_FRAMES +
+            (batchNumber - 1) *
+                BATCH_SIZE +
+            1;
+
+        const end = Math.min(
+            TOTAL_FRAMES,
+            start + BATCH_SIZE - 1
+        );
+
+        return {
+            start,
+            end,
+        };
+    };
+
+    /*
+    ============================================================
+    GET BATCH NUMBER FOR FRAME
+    ============================================================
+    */
+
+    const getBatchNumber = (frameNumber) => {
+        if (frameNumber <= INITIAL_FRAMES) {
+            return 0;
+        }
+
+        return Math.ceil(
+            (frameNumber - INITIAL_FRAMES) /
+                BATCH_SIZE
+        );
+    };
+
+    /*
+    ============================================================
+    LOAD BATCH
+    ============================================================
+    */
+
+    const loadBatch = async (batchNumber) => {
+        if (
+            loadedBatches.current.has(
+                batchNumber
+            ) ||
+            cancelledRef.current
+        ) {
+            return;
+        }
+
+        loadedBatches.current.add(
+            batchNumber
+        );
+
+        const { start, end } =
+            getBatchRange(batchNumber);
+
+        const frames = [];
+
+        for (
+            let i = start;
+            i <= end;
+            i++
+        ) {
+            frames.push(i);
+        }
+
+        await Promise.all(
+            frames.map((frameNumber) =>
+                loadFrame(frameNumber)
+            )
+        );
+    };
+
+    /*
+    ============================================================
+    LOAD NEXT BATCH
+    ============================================================
+    */
+
+    const preloadNextBatch = (
+        currentFrameNumber
+    ) => {
+        const triggerFrame =
+            currentFrameNumber +
+            LOAD_TRIGGER;
+
+        const batchNumber =
+            getBatchNumber(
+                triggerFrame
+            );
+
+        if (
+            batchNumber > 0 &&
+            batchNumber <=
+                Math.ceil(
+                    (TOTAL_FRAMES -
+                        INITIAL_FRAMES) /
+                        BATCH_SIZE
+                )
+        ) {
+            loadBatch(batchNumber);
+        }
+    };
+
+    /*
+    ============================================================
+    INITIAL LOAD
     ============================================================
     */
 
     useEffect(() => {
         cancelledRef.current = false;
 
-        const loadInitialFrames = async () => {
-            const initialBatch = [];
+        const startInitialLoad =
+            async () => {
+                await loadBatch(0);
 
-            for (
-                let i = 1;
-                i <= INITIAL_FRAMES;
-                i++
-            ) {
-                initialBatch.push(i);
-            }
-
-            await Promise.all(
-                initialBatch.map((frameNumber) =>
-                    loadFrame(frameNumber)
-                )
-            );
-
-            if (cancelledRef.current) {
-                return;
-            }
-
-            setIsReady(true);
-
-            /*
-            Start loading the rest in background.
-            */
-
-            loadRemainingFrames();
-        };
-
-        /*
-        ========================================================
-        BACKGROUND LOADING
-        ========================================================
-        */
-
-        const loadRemainingFrames = async () => {
-            while (
-                !cancelledRef.current &&
-                imageCache.current.filter(Boolean)
-                    .length < TOTAL_FRAMES
-            ) {
-                /*
-                Current position of the user.
-                */
-
-                const center =
-                    Math.round(
-                        targetFrame.current
-                    );
-
-                const candidates = [];
-
-                /*
-                Find frames that haven't loaded yet.
-                */
-
-                for (
-                    let i =
-                        INITIAL_FRAMES + 1;
-                    i <= TOTAL_FRAMES;
-                    i++
+                if (
+                    cancelledRef.current
                 ) {
-                    if (
-                        !imageCache.current[
-                            i - 1
-                        ] &&
-                        !loadingFrames.current.has(
-                            i
-                        )
-                    ) {
-                        candidates.push(i);
-                    }
-                }
-
-                if (candidates.length === 0) {
-                    break;
-                }
-
-                /*
-                Load frames closest to the
-                user's current position first.
-                */
-
-                candidates.sort((a, b) => {
-                    return (
-                        Math.abs(a - center) -
-                        Math.abs(b - center)
-                    );
-                });
-
-                const batch =
-                    candidates.slice(
-                        0,
-                        BATCH_SIZE
-                    );
-
-                await Promise.all(
-                    batch.map((frameNumber) =>
-                        loadFrame(frameNumber)
-                    )
-                );
-
-                if (cancelledRef.current) {
                     return;
                 }
 
-                /*
-                Give the browser a tiny break
-                between batches.
-                */
+                setIsReady(true);
+            };
 
-                await new Promise(
-                    (resolve) => {
-                        setTimeout(
-                            resolve,
-                            20
-                        );
-                    }
-                );
-            }
-        };
-
-        loadInitialFrames();
+        startInitialLoad();
 
         return () => {
             cancelledRef.current = true;
@@ -238,12 +243,15 @@ export default function Home() {
 
     /*
     ============================================================
-    PAGE STARTS AT TOP
+    FORCE PAGE TO TOP
     ============================================================
     */
 
     useEffect(() => {
-        if ("scrollRestoration" in window.history) {
+        if (
+            "scrollRestoration" in
+            window.history
+        ) {
             window.history.scrollRestoration =
                 "manual";
         }
@@ -263,13 +271,15 @@ export default function Home() {
 
     /*
     ============================================================
-    LOCK SCROLL UNTIL INITIAL FRAMES ARE READY
+    LOCK PAGE UNTIL FIRST 100 FRAMES ARE READY
     ============================================================
     */
 
     useEffect(() => {
         if (isReady) {
-            document.body.style.overflow = "";
+            document.body.style.overflow =
+                "";
+
             document.documentElement.style.overflow =
                 "";
 
@@ -283,67 +293,13 @@ export default function Home() {
             "hidden";
 
         return () => {
-            document.body.style.overflow = "";
+            document.body.style.overflow =
+                "";
+
             document.documentElement.style.overflow =
                 "";
         };
     }, [isReady]);
-
-    /*
-    ============================================================
-    FIND CLOSEST AVAILABLE FRAME
-    ============================================================
-    */
-
-    const getAvailableFrame = (
-        requestedFrame
-    ) => {
-        if (
-            imageCache.current[
-                requestedFrame - 1
-            ]
-        ) {
-            return requestedFrame;
-        }
-
-        /*
-        Search outward from requested frame.
-        */
-
-        for (
-            let distance = 1;
-            distance <= TOTAL_FRAMES;
-            distance++
-        ) {
-            const previous =
-                requestedFrame -
-                distance;
-
-            const next =
-                requestedFrame +
-                distance;
-
-            if (
-                previous >= 1 &&
-                imageCache.current[
-                    previous - 1
-                ]
-            ) {
-                return previous;
-            }
-
-            if (
-                next <= TOTAL_FRAMES &&
-                imageCache.current[
-                    next - 1
-                ]
-            ) {
-                return next;
-            }
-        }
-
-        return 1;
-    };
 
     /*
     ============================================================
@@ -366,14 +322,15 @@ export default function Home() {
                 return;
             }
 
-            const progress = Math.max(
-                0,
-                Math.min(
-                    1,
-                    window.scrollY /
-                        maxScroll
-                )
-            );
+            const progress =
+                Math.max(
+                    0,
+                    Math.min(
+                        1,
+                        window.scrollY /
+                            maxScroll
+                    )
+                );
 
             targetFrame.current =
                 1 +
@@ -387,7 +344,7 @@ export default function Home() {
                 currentFrame.current;
 
             /*
-            Smooth interpolation.
+            Smooth frame movement.
             */
 
             currentFrame.current +=
@@ -412,19 +369,38 @@ export default function Home() {
                     )
                 );
 
-            const renderFrame =
-                getAvailableFrame(
-                    requestedFrame
-                );
+            /*
+            ====================================================
+            START NEXT BATCH EARLY
+            ====================================================
+            */
+
+            preloadNextBatch(
+                requestedFrame
+            );
+
+            /*
+            ====================================================
+            ONLY SHOW LOADED FRAME
+            ====================================================
+            */
 
             if (
-                renderFrame !==
-                lastFrame.current
+                imageCache.current[
+                    requestedFrame - 1
+                ]
             ) {
-                lastFrame.current =
-                    renderFrame;
+                if (
+                    requestedFrame !==
+                    lastFrame.current
+                ) {
+                    lastFrame.current =
+                        requestedFrame;
 
-                setFrame(renderFrame);
+                    setFrame(
+                        requestedFrame
+                    );
+                }
             }
 
             rafRef.current =
@@ -436,7 +412,9 @@ export default function Home() {
         window.addEventListener(
             "scroll",
             handleScroll,
-            { passive: true }
+            {
+                passive: true,
+            }
         );
 
         handleScroll();
@@ -466,17 +444,33 @@ export default function Home() {
     ============================================================
     */
 
-    const availableFrame =
-        getAvailableFrame(frame);
-
     const currentImage =
         imageCache.current[
-            availableFrame - 1
+            frame - 1
         ];
 
     const currentImageSrc =
         currentImage?.src ||
         getFramePath(1);
+
+    /*
+    ============================================================
+    LOADING PERCENTAGE
+    ============================================================
+    */
+
+    const loadingPercentage =
+        Math.min(
+            100,
+            Math.round(
+                (Math.min(
+                    loadedFrames,
+                    INITIAL_FRAMES
+                ) /
+                    INITIAL_FRAMES) *
+                    100
+            )
+        );
 
     /*
     ============================================================
@@ -533,26 +527,7 @@ export default function Home() {
 
     /*
     ============================================================
-    LOADING PERCENTAGE
-    ============================================================
-    */
-
-    const loadingPercentage =
-        Math.min(
-            100,
-            Math.round(
-                (Math.min(
-                    loadedFrames,
-                    INITIAL_FRAMES
-                ) /
-                    INITIAL_FRAMES) *
-                    100
-            )
-        );
-
-    /*
-    ============================================================
-    EXPERIENCE LOADER
+    LOADER
     ============================================================
     */
 
@@ -565,6 +540,12 @@ export default function Home() {
             />
         );
     }
+
+    /*
+    ============================================================
+    PAGE
+    ============================================================
+    */
 
     return (
         <>
@@ -658,7 +639,10 @@ export default function Home() {
                 description={
                     <div className="mt-8 space-y-3">
                         {marketingSteps.map(
-                            (item, index) => {
+                            (
+                                item,
+                                index
+                            ) => {
                                 const Icon =
                                     item.icon;
 
