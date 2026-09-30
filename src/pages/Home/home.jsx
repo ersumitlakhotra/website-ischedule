@@ -1,5 +1,3 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-
 import { useEffect, useRef, useState } from "react";
 import { FrameContent } from "./frame_content";
 import ExperienceLoader from "../loading.jsx";
@@ -13,13 +11,53 @@ import {
 
 export default function Home() {
     const TOTAL_FRAMES = 695;
+
+    /*
+    ============================================================
+    LOADING SETTINGS
+    ============================================================
+    */
+
     const INITIAL_FRAMES = 100;
     const BATCH_SIZE = 50;
+
+    /*
+    Start loading the next batch this many frames
+    before reaching it.
+    */
+
     const LOAD_TRIGGER = 30;
+
+    /*
+    Final batch starts loading this many frames
+    before the end.
+    */
+
+    const FINAL_BATCH_TRIGGER = 80;
+
+    /*
+    Fast scrolling:
+    How much frame movement is considered a fast jump.
+    */
+
+    const FAST_SCROLL_DISTANCE = 18;
+
+    /*
+    When fast scrolling, load destination batch
+    plus neighboring batches.
+    */
+
+    const FAST_SCROLL_BATCHES = 2;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
     const [isReady, setIsReady] = useState(false);
+
+    /*
+    ============================================================
+    FRAME REFS
+    ============================================================
+    */
 
     const targetFrame = useRef(1);
     const currentFrame = useRef(1);
@@ -27,9 +65,49 @@ export default function Home() {
 
     const rafRef = useRef(null);
 
+    /*
+    ============================================================
+    IMAGE CACHE
+    ============================================================
+    */
+
     const imageCache = useRef([]);
+
+    /*
+    Frames currently being downloaded.
+    Prevents duplicate network requests.
+    */
+
     const loadingFrames = useRef(new Set());
+
+    /*
+    Batches that have completely finished loading.
+    */
+
     const loadedBatches = useRef(new Set());
+
+    /*
+    Batches currently being requested.
+    */
+
+    const loadingBatches = useRef(new Set());
+
+    /*
+    ============================================================
+    SCROLL SPEED
+    ============================================================
+    */
+
+    const previousScrollY = useRef(0);
+    const previousScrollTime = useRef(performance.now());
+
+    const lastPreloadFrame = useRef(1);
+
+    /*
+    ============================================================
+    CANCEL
+    ============================================================
+    */
 
     const cancelledRef = useRef(false);
 
@@ -40,7 +118,7 @@ export default function Home() {
     */
 
     const getFramePath = (frameNumber) => {
-        return `/frames/frame_${String(frameNumber).padStart(4, "0")}.jpg`;
+        return `/frames/frame_${String(frameNumber).padStart(4, "0")}.webp`;
     };
 
     /*
@@ -109,8 +187,7 @@ export default function Home() {
 
         const start =
             INITIAL_FRAMES +
-            (batchNumber - 1) *
-                BATCH_SIZE +
+            (batchNumber - 1) * BATCH_SIZE +
             1;
 
         const end = Math.min(
@@ -126,7 +203,7 @@ export default function Home() {
 
     /*
     ============================================================
-    GET BATCH NUMBER FOR FRAME
+    GET BATCH NUMBER
     ============================================================
     */
 
@@ -136,8 +213,19 @@ export default function Home() {
         }
 
         return Math.ceil(
-            (frameNumber - INITIAL_FRAMES) /
-                BATCH_SIZE
+            (frameNumber - INITIAL_FRAMES) / BATCH_SIZE
+        );
+    };
+
+    /*
+    ============================================================
+    TOTAL BATCHES
+    ============================================================
+    */
+
+    const getTotalBatches = () => {
+        return Math.ceil(
+            (TOTAL_FRAMES - INITIAL_FRAMES) / BATCH_SIZE
         );
     };
 
@@ -149,67 +237,180 @@ export default function Home() {
 
     const loadBatch = async (batchNumber) => {
         if (
-            loadedBatches.current.has(
-                batchNumber
-            ) ||
+            batchNumber < 0 ||
+            batchNumber > getTotalBatches() ||
             cancelledRef.current
         ) {
             return;
         }
 
-        loadedBatches.current.add(
-            batchNumber
-        );
+        /*
+        Already completely loaded.
+        */
 
-        const { start, end } =
-            getBatchRange(batchNumber);
+        if (loadedBatches.current.has(batchNumber)) {
+            return;
+        }
+
+        /*
+        Already downloading.
+        */
+
+        if (loadingBatches.current.has(batchNumber)) {
+            return;
+        }
+
+        loadingBatches.current.add(batchNumber);
+
+        const { start, end } = getBatchRange(batchNumber);
 
         const frames = [];
 
-        for (
-            let i = start;
-            i <= end;
-            i++
-        ) {
+        for (let i = start; i <= end; i++) {
             frames.push(i);
         }
 
+        /*
+        Load entire batch concurrently.
+        */
+
         await Promise.all(
-            frames.map((frameNumber) =>
-                loadFrame(frameNumber)
-            )
+            frames.map((frameNumber) => loadFrame(frameNumber))
         );
+
+        loadingBatches.current.delete(batchNumber);
+
+        if (!cancelledRef.current) {
+            loadedBatches.current.add(batchNumber);
+        }
     };
 
     /*
     ============================================================
-    LOAD NEXT BATCH
+    LOAD BATCH AROUND FRAME
     ============================================================
     */
 
-    const preloadNextBatch = (
-        currentFrameNumber
+    const loadBatchAroundFrame = (
+        frameNumber,
+        radius = 1
     ) => {
+        const centerBatch = getBatchNumber(frameNumber);
+
+        const totalBatches = getTotalBatches();
+
+        /*
+        Destination batch first.
+        */
+
+        loadBatch(centerBatch);
+
+        /*
+        Then nearby batches.
+        */
+
+        for (
+            let offset = 1;
+            offset <= radius;
+            offset++
+        ) {
+            const forwardBatch = centerBatch + offset;
+            const backwardBatch = centerBatch - offset;
+
+            if (forwardBatch <= totalBatches) {
+                loadBatch(forwardBatch);
+            }
+
+            if (backwardBatch >= 1) {
+                loadBatch(backwardBatch);
+            }
+        }
+    };
+
+    /*
+    ============================================================
+    NORMAL PRELOAD
+    ============================================================
+    */
+
+    const preloadNextBatch = (currentFrameNumber) => {
+        const totalBatches = getTotalBatches();
+
+        /*
+        Normal next-batch preload.
+        */
+
         const triggerFrame =
-            currentFrameNumber +
-            LOAD_TRIGGER;
+            currentFrameNumber + LOAD_TRIGGER;
 
         const batchNumber =
-            getBatchNumber(
-                triggerFrame
-            );
+            getBatchNumber(triggerFrame);
 
         if (
             batchNumber > 0 &&
-            batchNumber <=
-                Math.ceil(
-                    (TOTAL_FRAMES -
-                        INITIAL_FRAMES) /
-                        BATCH_SIZE
-                )
+            batchNumber <= totalBatches
         ) {
             loadBatch(batchNumber);
         }
+
+        /*
+        ========================================================
+        FINAL BATCH SAFETY
+        ========================================================
+
+        The final batch is:
+
+        651 → 695
+
+        Start loading it when the animation reaches
+        approximately frame 615.
+
+        This guarantees the last frames are requested
+        before the user reaches them.
+        */
+
+        if (
+            currentFrameNumber >=
+            TOTAL_FRAMES - FINAL_BATCH_TRIGGER
+        ) {
+            loadBatch(totalBatches);
+        }
+    };
+
+    /*
+    ============================================================
+    FAST SCROLL PRELOAD
+    ============================================================
+    */
+
+    const handleFastScrollPreload = (requestedFrame) => {
+        const previous = lastPreloadFrame.current;
+
+        const distance = Math.abs(
+            requestedFrame - previous
+        );
+
+        /*
+        Nothing significant changed.
+        */
+
+        if (distance < FAST_SCROLL_DISTANCE) {
+            return;
+        }
+
+        lastPreloadFrame.current = requestedFrame;
+
+        /*
+        Fast movement detected.
+
+        Load destination batch
+        + neighboring batches.
+        */
+
+        loadBatchAroundFrame(
+            requestedFrame,
+            FAST_SCROLL_BATCHES
+        );
     };
 
     /*
@@ -221,18 +422,35 @@ export default function Home() {
     useEffect(() => {
         cancelledRef.current = false;
 
-        const startInitialLoad =
-            async () => {
-                await loadBatch(0);
+        const startInitialLoad = async () => {
+            /*
+            Load first 100 frames.
+            */
 
-                if (
-                    cancelledRef.current
-                ) {
-                    return;
-                }
+            await loadBatch(0);
 
-                setIsReady(true);
-            };
+            if (cancelledRef.current) {
+                return;
+            }
+
+            /*
+            Website can now appear.
+            */
+
+            setIsReady(true);
+
+            /*
+            IMPORTANT:
+
+            Immediately start loading the next batch
+            after the first 100 frames.
+
+            This prevents the user from reaching
+            frame 101 before batch 1 has started.
+            */
+
+            loadBatch(1);
+        };
 
         startInitialLoad();
 
@@ -248,56 +466,39 @@ export default function Home() {
     */
 
     useEffect(() => {
-        if (
-            "scrollRestoration" in
-            window.history
-        ) {
-            window.history.scrollRestoration =
-                "manual";
+        if ("scrollRestoration" in window.history) {
+            window.history.scrollRestoration = "manual";
         }
 
         window.scrollTo(0, 0);
 
         return () => {
-            if (
-                "scrollRestoration" in
-                window.history
-            ) {
-                window.history.scrollRestoration =
-                    "auto";
+            if ("scrollRestoration" in window.history) {
+                window.history.scrollRestoration = "auto";
             }
         };
     }, []);
 
     /*
     ============================================================
-    LOCK PAGE UNTIL FIRST 100 FRAMES ARE READY
+    LOCK PAGE UNTIL FIRST 100 FRAMES
     ============================================================
     */
 
     useEffect(() => {
         if (isReady) {
-            document.body.style.overflow =
-                "";
-
-            document.documentElement.style.overflow =
-                "";
+            document.body.style.overflow = "";
+            document.documentElement.style.overflow = "";
 
             return;
         }
 
-        document.body.style.overflow =
-            "hidden";
-
-        document.documentElement.style.overflow =
-            "hidden";
+        document.body.style.overflow = "hidden";
+        document.documentElement.style.overflow = "hidden";
 
         return () => {
-            document.body.style.overflow =
-                "";
-
-            document.documentElement.style.overflow =
-                "";
+            document.body.style.overflow = "";
+            document.documentElement.style.overflow = "";
         };
     }, [isReady]);
 
@@ -314,29 +515,72 @@ export default function Home() {
 
         const handleScroll = () => {
             const maxScroll =
-                document.documentElement
-                    .scrollHeight -
+                document.documentElement.scrollHeight -
                 window.innerHeight;
 
             if (maxScroll <= 0) {
                 return;
             }
 
-            const progress =
-                Math.max(
-                    0,
-                    Math.min(
-                        1,
-                        window.scrollY /
-                            maxScroll
-                    )
-                );
+            const scrollY = window.scrollY;
 
-            targetFrame.current =
+            const now = performance.now();
+
+            const deltaY = Math.abs(
+                scrollY - previousScrollY.current
+            );
+
+            const deltaTime = Math.max(
+                1,
+                now - previousScrollTime.current
+            );
+
+            /*
+            Pixels per millisecond.
+            */
+
+            const scrollVelocity =
+                deltaY / deltaTime;
+
+            previousScrollY.current = scrollY;
+            previousScrollTime.current = now;
+
+            const progress = Math.max(
+                0,
+                Math.min(
+                    1,
+                    scrollY / maxScroll
+                )
+            );
+
+            const calculatedFrame =
                 1 +
-                progress *
-                    (TOTAL_FRAMES - 1);
+                progress * (TOTAL_FRAMES - 1);
+
+            targetFrame.current = calculatedFrame;
+
+            /*
+            ====================================================
+            FAST SCROLL DETECTION
+            ====================================================
+            */
+
+            const isFastScroll =
+                deltaY > FAST_SCROLL_DISTANCE ||
+                scrollVelocity > 1.2;
+
+            if (isFastScroll) {
+                handleFastScrollPreload(
+                    Math.round(calculatedFrame)
+                );
+            }
         };
+
+        /*
+        ========================================================
+        FRAME ANIMATION
+        ========================================================
+        */
 
         const animate = () => {
             const difference =
@@ -350,34 +594,28 @@ export default function Home() {
             currentFrame.current +=
                 difference * 0.10;
 
-            if (
-                Math.abs(difference) <
-                0.01
-            ) {
+            if (Math.abs(difference) < 0.01) {
                 currentFrame.current =
                     targetFrame.current;
             }
 
-            const requestedFrame =
-                Math.max(
-                    1,
-                    Math.min(
-                        TOTAL_FRAMES,
-                        Math.round(
-                            currentFrame.current
-                        )
+            const requestedFrame = Math.max(
+                1,
+                Math.min(
+                    TOTAL_FRAMES,
+                    Math.round(
+                        currentFrame.current
                     )
-                );
+                )
+            );
 
             /*
             ====================================================
-            START NEXT BATCH EARLY
+            NORMAL PRELOADING
             ====================================================
             */
 
-            preloadNextBatch(
-                requestedFrame
-            );
+            preloadNextBatch(requestedFrame);
 
             /*
             ====================================================
@@ -397,16 +635,12 @@ export default function Home() {
                     lastFrame.current =
                         requestedFrame;
 
-                    setFrame(
-                        requestedFrame
-                    );
+                    setFrame(requestedFrame);
                 }
             }
 
             rafRef.current =
-                requestAnimationFrame(
-                    animate
-                );
+                requestAnimationFrame(animate);
         };
 
         window.addEventListener(
@@ -420,9 +654,7 @@ export default function Home() {
         handleScroll();
 
         rafRef.current =
-            requestAnimationFrame(
-                animate
-            );
+            requestAnimationFrame(animate);
 
         return () => {
             window.removeEventListener(
@@ -445,9 +677,7 @@ export default function Home() {
     */
 
     const currentImage =
-        imageCache.current[
-            frame - 1
-        ];
+        imageCache.current[frame - 1];
 
     const currentImageSrc =
         currentImage?.src ||
@@ -459,18 +689,17 @@ export default function Home() {
     ============================================================
     */
 
-    const loadingPercentage =
-        Math.min(
-            100,
-            Math.round(
-                (Math.min(
+    const loadingPercentage = Math.min(
+        100,
+        Math.round(
+            (
+                Math.min(
                     loadedFrames,
                     INITIAL_FRAMES
-                ) /
-                    INITIAL_FRAMES) *
-                    100
-            )
-        );
+                ) / INITIAL_FRAMES
+            ) * 100
+        )
+    );
 
     /*
     ============================================================
@@ -534,9 +763,7 @@ export default function Home() {
     if (!isReady) {
         return (
             <ExperienceLoader
-                progress={
-                    loadingPercentage
-                }
+                progress={loadingPercentage}
             />
         );
     }
@@ -639,18 +866,12 @@ export default function Home() {
                 description={
                     <div className="mt-8 space-y-3">
                         {marketingSteps.map(
-                            (
-                                item,
-                                index
-                            ) => {
-                                const Icon =
-                                    item.icon;
+                            (item, index) => {
+                                const Icon = item.icon;
 
                                 return (
                                     <motion.div
-                                        key={
-                                            item.title
-                                        }
+                                        key={item.title}
                                         initial={{
                                             opacity: 0,
                                             x: -120,
@@ -662,8 +883,7 @@ export default function Home() {
                                         transition={{
                                             duration: 0.8,
                                             delay:
-                                                index *
-                                                0.22,
+                                                index * 0.22,
                                             ease: [
                                                 0.16,
                                                 1,
@@ -681,12 +901,8 @@ export default function Home() {
 
                                         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-200/20 bg-gradient-to-br from-cyan-300/[0.18] to-cyan-500/[0.05] shadow-[0_0_20px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.2)]">
                                             <Icon
-                                                size={
-                                                    19
-                                                }
-                                                strokeWidth={
-                                                    1.8
-                                                }
+                                                size={19}
+                                                strokeWidth={1.8}
                                                 className="text-cyan-200 drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]"
                                             />
                                         </div>
@@ -694,9 +910,7 @@ export default function Home() {
                                         <div className="relative min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.15)]">
-                                                    {
-                                                        item.title
-                                                    }
+                                                    {item.title}
                                                 </span>
 
                                                 <span className="text-xs text-cyan-300/50">
@@ -704,32 +918,22 @@ export default function Home() {
                                                 </span>
 
                                                 <span className="text-xs text-cyan-100/60">
-                                                    {
-                                                        item.label
-                                                    }
+                                                    {item.label}
                                                 </span>
                                             </div>
 
                                             <p className="mt-1 text-xs leading-5 text-white/55">
-                                                {
-                                                    item.desc
-                                                }
+                                                {item.desc}
                                             </p>
 
                                             <div className="mt-2 flex items-center gap-2">
                                                 {item.points.map(
-                                                    (
-                                                        point
-                                                    ) => (
+                                                    (point) => (
                                                         <span
-                                                            key={
-                                                                point
-                                                            }
+                                                            key={point}
                                                             className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                         >
-                                                            {
-                                                                point
-                                                            }
+                                                            {point}
                                                         </span>
                                                     )
                                                 )}
@@ -776,9 +980,7 @@ export default function Home() {
                             animate={{
                                 opacity: Math.max(
                                     0,
-                                    1 -
-                                        frame /
-                                            35
+                                    1 - frame / 35
                                 ),
                                 x: Math.min(
                                     60,
@@ -833,11 +1035,7 @@ export default function Home() {
                             <div className="relative flex h-11 w-7 items-start justify-center overflow-hidden rounded-full border border-white/30 bg-white/5 p-1.5 shadow-[0_0_30px_rgba(255,255,255,0.08)]">
                                 <motion.div
                                     animate={{
-                                        y: [
-                                            0,
-                                            19,
-                                            0,
-                                        ],
+                                        y: [0, 19, 0],
                                         opacity: [
                                             1,
                                             0.25,
