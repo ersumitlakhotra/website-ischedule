@@ -1,4 +1,3 @@
-
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { useEffect, useRef, useState } from "react";
@@ -13,10 +12,9 @@ import {
 } from "lucide-react";
 
 export default function Home() {
-
     const TOTAL_FRAMES = 695;
-    const INITIAL_FRAMES = 200;
-    const BATCH_SIZE = 12;
+    const INITIAL_FRAMES = 120;
+    const BATCH_SIZE = 15;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
@@ -33,9 +31,9 @@ export default function Home() {
     const cancelledRef = useRef(false);
 
     /*
-    |--------------------------------------------------------------------------
-    | FRAME PATH
-    |--------------------------------------------------------------------------
+    ============================================================
+    FRAME PATH
+    ============================================================
     */
 
     const getFramePath = (frameNumber) => {
@@ -43,13 +41,12 @@ export default function Home() {
     };
 
     /*
-    |--------------------------------------------------------------------------
-    | LOAD SINGLE FRAME
-    |--------------------------------------------------------------------------
+    ============================================================
+    LOAD FRAME
+    ============================================================
     */
 
     const loadFrame = (frameNumber) => {
-
         if (
             frameNumber < 1 ||
             frameNumber > TOTAL_FRAMES ||
@@ -62,60 +59,54 @@ export default function Home() {
         loadingFrames.current.add(frameNumber);
 
         return new Promise((resolve) => {
-
             const image = new Image();
 
             image.onload = () => {
-
                 loadingFrames.current.delete(frameNumber);
 
-                if (!cancelledRef.current) {
-
-                    imageCache.current[frameNumber - 1] = image;
-
-                    setLoadedFrames(
-                        (previous) => previous + 1
-                    );
-
+                if (cancelledRef.current) {
+                    resolve();
+                    return;
                 }
 
-                resolve();
+                imageCache.current[
+                    frameNumber - 1
+                ] = image;
 
+                setLoadedFrames((previous) =>
+                    previous + 1
+                );
+
+                resolve();
             };
 
             image.onerror = () => {
-
                 loadingFrames.current.delete(frameNumber);
 
                 if (!cancelledRef.current) {
-
-                    setLoadedFrames(
-                        (previous) => previous + 1
+                    setLoadedFrames((previous) =>
+                        previous + 1
                     );
-
                 }
 
                 resolve();
-
             };
 
-            image.src = getFramePath(frameNumber);
-
+            image.src =
+                getFramePath(frameNumber);
         });
     };
 
     /*
-    |--------------------------------------------------------------------------
-    | LOAD FIRST 200 FRAMES
-    |--------------------------------------------------------------------------
+    ============================================================
+    INITIAL PRELOAD
+    ============================================================
     */
 
     useEffect(() => {
-
         cancelledRef.current = false;
 
         const loadInitialFrames = async () => {
-
             const initialBatch = [];
 
             for (
@@ -139,39 +130,55 @@ export default function Home() {
             setIsReady(true);
 
             /*
-            |------------------------------------------------------------------
-            | Start loading remaining frames in background
-            |------------------------------------------------------------------
+            Start loading the rest in background.
             */
 
             loadRemainingFrames();
-
         };
 
-        const loadRemainingFrames = async () => {
+        /*
+        ========================================================
+        BACKGROUND LOADING
+        ========================================================
+        */
 
-            while (!cancelledRef.current) {
+        const loadRemainingFrames = async () => {
+            while (
+                !cancelledRef.current &&
+                imageCache.current.filter(Boolean)
+                    .length < TOTAL_FRAMES
+            ) {
+                /*
+                Current position of the user.
+                */
 
                 const center =
-                    Math.round(targetFrame.current);
+                    Math.round(
+                        targetFrame.current
+                    );
 
                 const candidates = [];
 
+                /*
+                Find frames that haven't loaded yet.
+                */
+
                 for (
-                    let i = INITIAL_FRAMES + 1;
+                    let i =
+                        INITIAL_FRAMES + 1;
                     i <= TOTAL_FRAMES;
                     i++
                 ) {
-
                     if (
-                        !imageCache.current[i - 1] &&
-                        !loadingFrames.current.has(i)
+                        !imageCache.current[
+                            i - 1
+                        ] &&
+                        !loadingFrames.current.has(
+                            i
+                        )
                     ) {
-
                         candidates.push(i);
-
                     }
-
                 }
 
                 if (candidates.length === 0) {
@@ -179,22 +186,22 @@ export default function Home() {
                 }
 
                 /*
-                |----------------------------------------------------------------
-                | Prioritize frames closest to current scroll position
-                |----------------------------------------------------------------
+                Load frames closest to the
+                user's current position first.
                 */
 
                 candidates.sort((a, b) => {
-
                     return (
                         Math.abs(a - center) -
                         Math.abs(b - center)
                     );
-
                 });
 
                 const batch =
-                    candidates.slice(0, BATCH_SIZE);
+                    candidates.slice(
+                        0,
+                        BATCH_SIZE
+                    );
 
                 await Promise.all(
                     batch.map((frameNumber) =>
@@ -207,178 +214,191 @@ export default function Home() {
                 }
 
                 /*
-                |----------------------------------------------------------------
-                | Small delay so background loading doesn't dominate the browser
-                |----------------------------------------------------------------
+                Give the browser a tiny break
+                between batches.
                 */
 
-                await new Promise((resolve) => {
-                    setTimeout(resolve, 15);
-                });
-
+                await new Promise(
+                    (resolve) => {
+                        setTimeout(
+                            resolve,
+                            20
+                        );
+                    }
+                );
             }
-
         };
 
         loadInitialFrames();
 
         return () => {
-
             cancelledRef.current = true;
-
         };
-
     }, []);
 
     /*
-    |--------------------------------------------------------------------------
-    | LOCK PAGE WHILE FIRST 200 FRAMES LOAD
-    |--------------------------------------------------------------------------
+    ============================================================
+    PAGE STARTS AT TOP
+    ============================================================
     */
 
     useEffect(() => {
-
-        if (isReady) {
-
-            document.body.style.overflow = "";
-            document.documentElement.style.overflow = "";
-
-            return;
-
+        if ("scrollRestoration" in window.history) {
+            window.history.scrollRestoration =
+                "manual";
         }
 
-        document.body.style.overflow = "hidden";
-        document.documentElement.style.overflow = "hidden";
+        window.scrollTo(0, 0);
 
         return () => {
-
-            document.body.style.overflow = "";
-            document.documentElement.style.overflow = "";
-
+            if (
+                "scrollRestoration" in
+                window.history
+            ) {
+                window.history.scrollRestoration =
+                    "auto";
+            }
         };
+    }, []);
 
+    /*
+    ============================================================
+    LOCK SCROLL UNTIL INITIAL FRAMES ARE READY
+    ============================================================
+    */
+
+    useEffect(() => {
+        if (isReady) {
+            document.body.style.overflow = "";
+            document.documentElement.style.overflow =
+                "";
+
+            return;
+        }
+
+        document.body.style.overflow =
+            "hidden";
+
+        document.documentElement.style.overflow =
+            "hidden";
+
+        return () => {
+            document.body.style.overflow = "";
+            document.documentElement.style.overflow =
+                "";
+        };
     }, [isReady]);
 
     /*
-    |--------------------------------------------------------------------------
-    | FIND CLOSEST AVAILABLE FRAME
-    |--------------------------------------------------------------------------
+    ============================================================
+    FIND CLOSEST AVAILABLE FRAME
+    ============================================================
     */
 
-    const getAvailableFrame = (requestedFrame) => {
-
+    const getAvailableFrame = (
+        requestedFrame
+    ) => {
         if (
-            imageCache.current[requestedFrame - 1]
+            imageCache.current[
+                requestedFrame - 1
+            ]
         ) {
             return requestedFrame;
         }
+
+        /*
+        Search outward from requested frame.
+        */
 
         for (
             let distance = 1;
             distance <= TOTAL_FRAMES;
             distance++
         ) {
-
             const previous =
-                requestedFrame - distance;
+                requestedFrame -
+                distance;
 
             const next =
-                requestedFrame + distance;
+                requestedFrame +
+                distance;
 
             if (
                 previous >= 1 &&
-                imageCache.current[previous - 1]
+                imageCache.current[
+                    previous - 1
+                ]
             ) {
-
                 return previous;
-
             }
 
             if (
                 next <= TOTAL_FRAMES &&
-                imageCache.current[next - 1]
+                imageCache.current[
+                    next - 1
+                ]
             ) {
-
                 return next;
-
             }
-
         }
 
         return 1;
-
     };
 
     /*
-    |--------------------------------------------------------------------------
-    | CURRENT IMAGE
-    |--------------------------------------------------------------------------
-    */
-
-    const availableFrame =
-        getAvailableFrame(frame);
-
-    const currentImage =
-        imageCache.current[availableFrame - 1];
-
-    const currentImageSrc =
-        currentImage?.src ||
-        getFramePath(1);
-
-    /*
-    |--------------------------------------------------------------------------
-    | SMOOTH SCROLL → FRAME
-    |--------------------------------------------------------------------------
+    ============================================================
+    SCROLL → FRAME
+    ============================================================
     */
 
     useEffect(() => {
-
         if (!isReady) {
             return;
         }
 
         const handleScroll = () => {
-
             const maxScroll =
-                document.documentElement.scrollHeight -
+                document.documentElement
+                    .scrollHeight -
                 window.innerHeight;
 
             if (maxScroll <= 0) {
                 return;
             }
 
-            const progress =
-                Math.max(
-                    0,
-                    Math.min(
-                        1,
-                        window.scrollY / maxScroll
-                    )
-                );
+            const progress = Math.max(
+                0,
+                Math.min(
+                    1,
+                    window.scrollY /
+                        maxScroll
+                )
+            );
 
             targetFrame.current =
                 1 +
                 progress *
-                (TOTAL_FRAMES - 1);
-
+                    (TOTAL_FRAMES - 1);
         };
 
         const animate = () => {
-
             const difference =
                 targetFrame.current -
                 currentFrame.current;
+
+            /*
+            Smooth interpolation.
+            */
 
             currentFrame.current +=
                 difference * 0.10;
 
             if (
-                Math.abs(difference) < 0.01
+                Math.abs(difference) <
+                0.01
             ) {
-
                 currentFrame.current =
                     targetFrame.current;
-
             }
 
             const requestedFrame =
@@ -401,27 +421,22 @@ export default function Home() {
                 renderFrame !==
                 lastFrame.current
             ) {
-
                 lastFrame.current =
                     renderFrame;
 
                 setFrame(renderFrame);
-
             }
 
             rafRef.current =
                 requestAnimationFrame(
                     animate
                 );
-
         };
 
         window.addEventListener(
             "scroll",
             handleScroll,
-            {
-                passive: true,
-            }
+            { passive: true }
         );
 
         handleScroll();
@@ -432,28 +447,41 @@ export default function Home() {
             );
 
         return () => {
-
             window.removeEventListener(
                 "scroll",
                 handleScroll
             );
 
             if (rafRef.current) {
-
                 cancelAnimationFrame(
                     rafRef.current
                 );
-
             }
-
         };
-
     }, [isReady]);
 
     /*
-    |--------------------------------------------------------------------------
-    | MARKETING STEPS
-    |--------------------------------------------------------------------------
+    ============================================================
+    CURRENT IMAGE
+    ============================================================
+    */
+
+    const availableFrame =
+        getAvailableFrame(frame);
+
+    const currentImage =
+        imageCache.current[
+            availableFrame - 1
+        ];
+
+    const currentImageSrc =
+        currentImage?.src ||
+        getFramePath(1);
+
+    /*
+    ============================================================
+    MARKETING STEPS
+    ============================================================
     */
 
     const marketingSteps = [
@@ -504,54 +532,58 @@ export default function Home() {
     ];
 
     /*
-    |--------------------------------------------------------------------------
-    | LOADING SCREEN
-    |--------------------------------------------------------------------------
+    ============================================================
+    LOADING PERCENTAGE
+    ============================================================
     */
 
     const loadingPercentage =
         Math.min(
             100,
             Math.round(
-                (
-                    Math.min(
-                        loadedFrames,
-                        INITIAL_FRAMES
-                    ) /
+                (Math.min(
+                    loadedFrames,
                     INITIAL_FRAMES
-                ) *
-                100
+                ) /
+                    INITIAL_FRAMES) *
+                    100
             )
         );
 
-    if (!isReady) {
+    /*
+    ============================================================
+    EXPERIENCE LOADER
+    ============================================================
+    */
 
+    if (!isReady) {
         return (
             <ExperienceLoader
-                progress={loadingPercentage}
+                progress={
+                    loadingPercentage
+                }
             />
         );
-
     }
 
     return (
         <>
-
-            {/* Background */}
+            {/* ============================================================
+                CINEMATIC FRAME BACKGROUND
+            ============================================================ */}
 
             <div className="fixed inset-0 z-0 h-screen w-screen overflow-hidden bg-black">
-
                 <img
                     src={currentImageSrc}
                     alt=""
                     draggable="false"
                     className="absolute inset-0 h-full w-full select-none object-cover"
                 />
-
             </div>
 
-
-            {/* First */}
+            {/* ============================================================
+                FRAME 30
+            ============================================================ */}
 
             <FrameContent
                 frame={frame}
@@ -562,7 +594,6 @@ export default function Home() {
                     <>
                         Your time
                         <br />
-
                         <span className="text-cyan-400">
                             Perfectly scheduled
                         </span>
@@ -571,8 +602,9 @@ export default function Home() {
                 description="A modern appointment platform designed to help businesses manage bookings, customers, employees and growth."
             />
 
-
-            {/* Second */}
+            {/* ============================================================
+                FRAME 120
+            ============================================================ */}
 
             <FrameContent
                 frame={frame}
@@ -583,7 +615,6 @@ export default function Home() {
                     <>
                         Online Booking
                         <br />
-
                         <span className="text-cyan-400">
                             Automated confirmations
                         </span>
@@ -592,8 +623,9 @@ export default function Home() {
                 description="Let customers book appointments 24/7 with a seamless online experience—anytime, anywhere, without the need for calls or manual scheduling."
             />
 
-
-            {/* Third */}
+            {/* ============================================================
+                FRAME 200
+            ============================================================ */}
 
             <FrameContent
                 frame={frame}
@@ -604,7 +636,6 @@ export default function Home() {
                     <>
                         QR Booking Link
                         <br />
-
                         <span className="text-cyan-400">
                             Mobile Application
                         </span>
@@ -613,8 +644,9 @@ export default function Home() {
                 description="Build stronger customer relationships and drive repeat business with powerful tools designed to increase engagement, loyalty, and bookings."
             />
 
-
-            {/* Fourth */}
+            {/* ============================================================
+                MARKETING SECTION
+            ============================================================ */}
 
             <FrameContent
                 frame={frame}
@@ -625,16 +657,16 @@ export default function Home() {
                 title=""
                 description={
                     <div className="mt-8 space-y-3">
-
                         {marketingSteps.map(
                             (item, index) => {
-
                                 const Icon =
                                     item.icon;
 
                                 return (
                                     <motion.div
-                                        key={item.title}
+                                        key={
+                                            item.title
+                                        }
                                         initial={{
                                             opacity: 0,
                                             x: -120,
@@ -645,7 +677,9 @@ export default function Home() {
                                         }}
                                         transition={{
                                             duration: 0.8,
-                                            delay: index * 0.22,
+                                            delay:
+                                                index *
+                                                0.22,
                                             ease: [
                                                 0.16,
                                                 1,
@@ -655,39 +689,30 @@ export default function Home() {
                                         }}
                                         className="group relative flex w-[480px] shrink-0 items-center gap-4 overflow-hidden rounded-2xl border border-cyan-300/30 bg-gradient-to-br from-cyan-400/[0.12] via-white/[0.07] to-cyan-950/[0.15] px-5 py-4 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.35),0_0_25px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(34,211,238,0.15)]"
                                     >
-
-                                        {/* Outer glow */}
-
                                         <div className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-r from-cyan-300/30 via-cyan-400/5 to-cyan-300/20 opacity-70 blur-sm" />
-
-                                        {/* Top reflection */}
 
                                         <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" />
 
-                                        {/* Inner glow */}
-
                                         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-cyan-400/[0.08] via-transparent to-cyan-300/[0.04]" />
 
-                                        {/* Icon */}
-
                                         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-200/20 bg-gradient-to-br from-cyan-300/[0.18] to-cyan-500/[0.05] shadow-[0_0_20px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.2)]">
-
                                             <Icon
-                                                size={19}
-                                                strokeWidth={1.8}
+                                                size={
+                                                    19
+                                                }
+                                                strokeWidth={
+                                                    1.8
+                                                }
                                                 className="text-cyan-200 drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]"
                                             />
-
                                         </div>
 
-                                        {/* Content */}
-
                                         <div className="relative min-w-0">
-
                                             <div className="flex items-center gap-2">
-
                                                 <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.15)]">
-                                                    {item.title}
+                                                    {
+                                                        item.title
+                                                    }
                                                 </span>
 
                                                 <span className="text-xs text-cyan-300/50">
@@ -695,96 +720,86 @@ export default function Home() {
                                                 </span>
 
                                                 <span className="text-xs text-cyan-100/60">
-                                                    {item.label}
+                                                    {
+                                                        item.label
+                                                    }
                                                 </span>
-
                                             </div>
 
                                             <p className="mt-1 text-xs leading-5 text-white/55">
-                                                {item.desc}
+                                                {
+                                                    item.desc
+                                                }
                                             </p>
 
                                             <div className="mt-2 flex items-center gap-2">
-
                                                 {item.points.map(
-                                                    (point) => (
-
+                                                    (
+                                                        point
+                                                    ) => (
                                                         <span
-                                                            key={point}
+                                                            key={
+                                                                point
+                                                            }
                                                             className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                         >
-                                                            {point}
+                                                            {
+                                                                point
+                                                            }
                                                         </span>
-
                                                     )
                                                 )}
-
                                             </div>
-
                                         </div>
-
-                                        {/* Bottom reflection */}
 
                                         <div className="pointer-events-none absolute inset-x-5 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
 
-                                        {/* Corner glow */}
-
                                         <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl" />
-
                                     </motion.div>
                                 );
-
                             }
                         )}
-
                     </div>
                 }
             />
 
-
-            {/* Scroll Indicator */}
+            {/* ============================================================
+                CINEMATIC INTRO
+            ============================================================ */}
 
             {frame < 70 && (
-
                 <motion.div
                     className="pointer-events-none fixed inset-0 z-40"
                     animate={{
-                        opacity:
-                            Math.max(
-                                0,
-                                1 - frame / 45
-                            ),
+                        opacity: Math.max(
+                            0,
+                            1 - frame / 45
+                        ),
                     }}
                     transition={{
                         duration: 0.15,
                         ease: "linear",
                     }}
                 >
-
-                    {/* Black cinematic overlay */}
-
                     <div className="absolute inset-0 bg-black/55" />
 
-                    {/* Right-side content */}
-
                     <div className="relative flex h-full items-center justify-end">
-
                         <motion.div
                             initial={{
                                 opacity: 0,
                                 x: 60,
                             }}
                             animate={{
-                                opacity:
-                                    Math.max(
-                                        0,
-                                        1 - frame / 35
-                                    ),
-                                x:
-                                    Math.min(
-                                        60,
-                                        frame * 1.5
-                                    ),
+                                opacity: Math.max(
+                                    0,
+                                    1 -
+                                        frame /
+                                            35
+                                ),
+                                x: Math.min(
+                                    60,
+                                    frame * 1.5
+                                ),
                             }}
                             transition={{
                                 duration: 0.2,
@@ -792,22 +807,22 @@ export default function Home() {
                             }}
                             className="flex w-[60%] flex-col items-start px-8 text-left md:px-14 lg:px-20 xl:px-24"
                         >
-
                             <h1 className="max-w-4xl text-4xl font-medium leading-[0.92] tracking-[-0.05em] text-white">
-                                Scroll to explore the software
+                                Scroll to explore
+                                the software
                             </h1>
 
                             <p className="mt-8 max-w-2xl text-sm leading-relaxed text-white/60">
-                                Powerful appointment management designed to keep your
-                                business organized, your customers connected, and your
-                                day running effortlessly.
+                                Powerful appointment
+                                management designed
+                                to keep your business
+                                organized, your
+                                customers connected,
+                                and your day running
+                                effortlessly.
                             </p>
-
                         </motion.div>
-
                     </div>
-
-                    {/* Bottom-center scroll indicator */}
 
                     <motion.div
                         initial={{
@@ -815,11 +830,10 @@ export default function Home() {
                             y: 20,
                         }}
                         animate={{
-                            opacity:
-                                Math.max(
-                                    0,
-                                    1 - frame / 30
-                                ),
+                            opacity: Math.max(
+                                0,
+                                1 - frame / 30
+                            ),
                             y:
                                 frame === 1
                                     ? 0
@@ -831,16 +845,15 @@ export default function Home() {
                         }}
                         className="absolute bottom-10 left-1/2 flex -translate-x-1/2 flex-col items-center"
                     >
-
                         <div className="flex items-center gap-4">
-
-                            {/* Mouse */}
-
                             <div className="relative flex h-11 w-7 items-start justify-center overflow-hidden rounded-full border border-white/30 bg-white/5 p-1.5 shadow-[0_0_30px_rgba(255,255,255,0.08)]">
-
                                 <motion.div
                                     animate={{
-                                        y: [0, 19, 0],
+                                        y: [
+                                            0,
+                                            19,
+                                            0,
+                                        ],
                                         opacity: [
                                             1,
                                             0.25,
@@ -854,26 +867,20 @@ export default function Home() {
                                     }}
                                     className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,1)]"
                                 />
-
                             </div>
 
-                            {/* Text */}
-
                             <div className="text-left">
-
                                 <div className="text-xs font-semibold uppercase tracking-[0.45em] text-white/85">
-                                    Scroll to explore
+                                    Scroll to
+                                    explore
                                 </div>
 
                                 <div className="mt-1 text-[10px] uppercase tracking-[0.3em] text-cyan-400/60">
-                                    Discover iSchedule
+                                    Discover
+                                    iSchedule
                                 </div>
-
                             </div>
-
                         </div>
-
-                        {/* Bottom line */}
 
                         <motion.div
                             animate={{
@@ -895,14 +902,9 @@ export default function Home() {
                             }}
                             className="mt-5 h-px w-20 origin-center bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.8)]"
                         />
-
                     </motion.div>
-
                 </motion.div>
-
             )}
-
         </>
     );
 }
-
