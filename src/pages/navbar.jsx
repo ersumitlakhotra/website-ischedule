@@ -75,6 +75,20 @@ export default function Navbar({ logo }) {
             >
               Login
             </button>
+            <button
+              onClick={() => window.open("https://www.app.ischedule.ca/signup", "_blank")}
+              className="
+                px-4
+                py-2
+                text-sm
+                font-medium
+                text-white/70
+                hover:text-white
+                transition-colors
+              "
+            >
+              Signup
+            </button>
 
             <button
               onClick={() => handleScroll("Demo")}
@@ -147,6 +161,20 @@ export default function Navbar({ logo }) {
                   "
                 >
                   Login
+                </button>      <button
+                  onClick={() => window.open("https://www.app.ischedule.ca/signup", "_blank")}
+                  className="
+                    w-full
+                    py-3
+                    px-3
+                    text-left
+                    text-sm
+                    font-medium
+                    text-white/70
+                    hover:text-white
+                  "
+                >
+                  Signup
                 </button>
 
                 <button
