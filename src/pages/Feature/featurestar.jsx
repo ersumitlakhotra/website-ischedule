@@ -1,9 +1,13 @@
 
 import React from "react";
-import { motion, useScroll, useTransform, useSpring } from "framer-motion";
+import {
+    motion,
+    useScroll,
+    useTransform,
+    useSpring,
+} from "framer-motion";
 
 export default function FeatureStarSection({ sectionRef }) {
-
     const { scrollYProgress } = useScroll({
         target: sectionRef,
         offset: ["start start", "end end"],
@@ -15,82 +19,99 @@ export default function FeatureStarSection({ sectionRef }) {
         mass: 0.35,
     });
 
-// =========================================================
-// 400VH — STAR SECTION
-// 0% → 40%
-// =========================================================
+    /*
+    ============================================================
+    0% → 25%
+    STAGE 1 — STAR
+    ============================================================
+    */
 
-const starScaleRaw = useTransform(
-    smoothProgress,
-    [0, 0.25, 0.32, 0.36, 0.39, 0.40],
-    [1, 1, 1.05, 1.15, 1.3, 1.5]
-);
+    const starScaleRaw = useTransform(
+        smoothProgress,
+        [0, 0.10, 0.18, 0.22, 0.24, 0.25],
+        [1, 1.02, 1.05, 1.12, 1.25, 1.5]
+    );
 
-const starScale = useSpring(starScaleRaw, {
-    stiffness: 70,
-    damping: 22,
-    mass: 0.3,
-});
+    const starScale = useSpring(starScaleRaw, {
+        stiffness: 70,
+        damping: 22,
+        mass: 0.3,
+    });
 
-const surroundingOpacity = useTransform(
-    smoothProgress,
-    [0, 0.28, 0.34, 0.38, 0.40, 0.43],
-    [1, 1, 0.9, 0.5, 0.1, 0]
-);
+    const surroundingOpacity = useTransform(
+        smoothProgress,
+        [0, 0.15, 0.20, 0.23, 0.25, 0.28],
+        [1, 1, 0.85, 0.45, 0, 0]
+    );
 
-const contentOpacity = useTransform(
-    smoothProgress,
-    [0, 0.28, 0.34, 0.38, 0.40, 0.43],
-    [1, 1, 0.8, 0.4, 0.1, 0]
-);
+    const contentOpacity = useTransform(
+        smoothProgress,
+        [0, 0.15, 0.20, 0.23, 0.25, 0.28],
+        [1, 1, 0.8, 0.35, 0, 0]
+    );
 
-// =========================================================
-// 350VH — WHITE CORE
-// 40% → 75%
-// =========================================================
+    /*
+    ============================================================
+    25% → 75%
+    STAGE 2 — WHITE CORE
+    ============================================================
+    */
 
-const whiteCoreScaleRaw = useTransform(
-    smoothProgress,
-    [0.40, 0.44, 0.49, 0.55, 0.62, 0.69, 0.75],
-    [1, 1.05, 1.3, 2.5, 7, 25, 100]
-);
+    const whiteCoreScaleRaw = useTransform(
+        smoothProgress,
+        [0.25, 0.29, 0.34, 0.42, 0.52, 0.63, 0.72, 0.75],
+        [1, 1.03, 1.15, 2, 5, 15, 45, 100]
+    );
 
-const whiteCoreScale = useSpring(whiteCoreScaleRaw, {
-    stiffness: 80,
-    damping: 24,
-    mass: 0.28,
-});
+    const whiteCoreScale = useSpring(whiteCoreScaleRaw, {
+        stiffness: 80,
+        damping: 24,
+        mass: 0.28,
+    });
 
-const whiteCoreOpacity = useTransform(
-    smoothProgress,
-    [0.40, 0.44, 0.49, 0.55, 0.62, 0.69, 0.75],
-    [0, 0.05, 0.12, 0.25, 0.55, 0.9, 1]
-);
+    const whiteCoreOpacity = useTransform(
+        smoothProgress,
+        [0.25, 0.29, 0.34, 0.42, 0.52, 0.63, 0.72, 0.75],
+        [0, 0.05, 0.10, 0.20, 0.40, 0.65, 0.9, 1]
+    );
 
-const finalWhiteOpacity = useTransform(
-    smoothProgress,
-    [0.62, 0.67, 0.72, 0.75, 0.78],
-    [0, 0.2, 0.7, 1, 1]
-);
+    /*
+    ============================================================
+    FINAL WHITE
+    ============================================================
+    */
 
-// =========================================================
-// 250VH — TESTIMONIALS
-// 75% → 100%
-// =========================================================
+    const finalWhiteOpacity = useTransform(
+        smoothProgress,
+        [0.65, 0.70, 0.73, 0.75, 0.78],
+        [0, 0.15, 0.55, 1, 1]
+    );
 
-const nextSectionOpacity = useTransform(
-    smoothProgress,
-    [0.73, 0.76, 0.80, 1],
-    [0, 0.25, 1, 1]
-);
+    /*
+    ============================================================
+    75% → 100%
+    STAGE 3 — TESTIMONIALS
+    ============================================================
+    */
 
-const nextSectionY = useTransform(
-    smoothProgress,
-    [0.73, 0.80, 1],
-    [40, 0, 0]
-);
+    const nextSectionOpacity = useTransform(
+        smoothProgress,
+        [0.73, 0.76, 0.80, 1],
+        [0, 0.25, 1, 1]
+    );
 
-  
+    const nextSectionY = useTransform(
+        smoothProgress,
+        [0.73, 0.80, 1],
+        [40, 0, 0]
+    );
+
+    /*
+    ============================================================
+    STAR ROTATION
+    ============================================================
+    */
+
     const starRotateRaw = useTransform(
         smoothProgress,
         [0, 1],
@@ -103,11 +124,32 @@ const nextSectionY = useTransform(
         mass: 0.3,
     });
 
+    /*
+    ============================================================
+    STATS
+    ============================================================
+    */
+
     const stats = [
-        { value: "100+", label: "Businesses" },
-        { value: "10K+", label: "Appointments Booked" },
-        { value: "4.8★", label: "Average Rating" },
+        {
+            value: "100+",
+            label: "Businesses",
+        },
+        {
+            value: "10K+",
+            label: "Appointments Booked",
+        },
+        {
+            value: "4.8★",
+            label: "Average Rating",
+        },
     ];
+
+    /*
+    ============================================================
+    TESTIMONIALS
+    ============================================================
+    */
 
     const testimonials = [
         {
@@ -132,23 +174,31 @@ const nextSectionY = useTransform(
 
             {/* =====================================================
                 STAGE 1
+                0% → 25%
                 DARK STAR
             ===================================================== */}
 
             <div className="absolute inset-0 bg-[#061a24]">
 
-                <motion.div style={{ opacity: surroundingOpacity }} className="pointer-events-none absolute inset-0 z-0">
-
+                <motion.div
+                    style={{
+                        opacity: surroundingOpacity,
+                    }}
+                    className="pointer-events-none absolute inset-0 z-0"
+                >
                     <div className="absolute inset-0 opacity-[0.035] [background-image:linear-gradient(rgba(255,255,255,1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,1)_1px,transparent_1px)] [background-size:60px_60px]" />
 
                     <div className="absolute -left-[250px] -top-[250px] h-[700px] w-[700px] rounded-full bg-cyan-400/[0.07] blur-[180px]" />
 
                     <div className="absolute -bottom-[250px] right-[5%] h-[600px] w-[600px] rounded-full bg-cyan-400/[0.05] blur-[180px]" />
-
                 </motion.div>
 
-                <motion.div style={{ opacity: contentOpacity }} className="absolute inset-0 z-20 flex items-center">
-
+                <motion.div
+                    style={{
+                        opacity: contentOpacity,
+                    }}
+                    className="absolute inset-0 z-20 flex items-center"
+                >
                     <div className="flex h-full w-[60%] items-center px-12 lg:px-20 xl:px-28">
 
                         <div className="max-w-3xl">
@@ -177,7 +227,6 @@ const nextSectionY = useTransform(
                             </p>
 
                             <div className="mt-10 flex flex-wrap gap-3">
-
                                 {[
                                     "Easy Booking",
                                     "Smart Dashboard",
@@ -188,11 +237,13 @@ const nextSectionY = useTransform(
                                     "Team Management",
                                     "Analytics",
                                 ].map((item) => (
-                                    <div key={item} className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-white/50 backdrop-blur-xl">
+                                    <div
+                                        key={item}
+                                        className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-white/50 backdrop-blur-xl"
+                                    >
                                         {item}
                                     </div>
                                 ))}
-
                             </div>
 
                         </div>
@@ -201,7 +252,13 @@ const nextSectionY = useTransform(
 
                     <div className="relative flex h-full w-[40%] items-center justify-center">
 
-                        <motion.div style={{ scale: starScale, rotate: starRotate }} className="relative flex h-[180px] w-[180px] items-center justify-center will-change-transform">
+                        <motion.div
+                            style={{
+                                scale: starScale,
+                                rotate: starRotate,
+                            }}
+                            className="relative flex h-[180px] w-[180px] items-center justify-center will-change-transform"
+                        >
 
                             <div className="absolute inset-[-100px] rounded-full bg-cyan-400/[0.08] blur-[90px]" />
 
@@ -225,16 +282,38 @@ const nextSectionY = useTransform(
 
                         </motion.div>
 
-                        <motion.div style={{ opacity: surroundingOpacity }} animate={{ rotate: 360 }} transition={{ duration: 14, repeat: Infinity, ease: "linear" }} className="pointer-events-none absolute h-[330px] w-[330px] rounded-full border border-cyan-300/[0.08]">
-
+                        <motion.div
+                            style={{
+                                opacity: surroundingOpacity,
+                            }}
+                            animate={{
+                                rotate: 360,
+                            }}
+                            transition={{
+                                duration: 14,
+                                repeat: Infinity,
+                                ease: "linear",
+                            }}
+                            className="pointer-events-none absolute h-[330px] w-[330px] rounded-full border border-cyan-300/[0.08]"
+                        >
                             <div className="absolute left-1/2 top-0 h-2 w-2 -translate-x-1/2 rounded-full bg-cyan-200 shadow-[0_0_15px_rgba(103,232,249,1)]" />
-
                         </motion.div>
 
-                        <motion.div style={{ opacity: surroundingOpacity }} animate={{ rotate: -360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="pointer-events-none absolute h-[440px] w-[440px] rounded-full border border-cyan-300/[0.05]">
-
+                        <motion.div
+                            style={{
+                                opacity: surroundingOpacity,
+                            }}
+                            animate={{
+                                rotate: -360,
+                            }}
+                            transition={{
+                                duration: 20,
+                                repeat: Infinity,
+                                ease: "linear",
+                            }}
+                            className="pointer-events-none absolute h-[440px] w-[440px] rounded-full border border-cyan-300/[0.05]"
+                        >
                             <div className="absolute bottom-10 right-10 h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,1)]" />
-
                         </motion.div>
 
                     </div>
@@ -245,19 +324,38 @@ const nextSectionY = useTransform(
 
             {/* =====================================================
                 STAGE 2
+                25% → 75%
                 WHITE CORE
             ===================================================== */}
 
-            <motion.div style={{ scale: whiteCoreScale, opacity: whiteCoreOpacity }} className="pointer-events-none absolute left-[80%] top-1/2 z-40 h-[40px] w-[40px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_40px_rgba(255,255,255,1),0_0_100px_rgba(255,255,255,0.9)] will-change-transform" />
+            <motion.div
+                style={{
+                    scale: whiteCoreScale,
+                    opacity: whiteCoreOpacity,
+                }}
+                className="pointer-events-none absolute left-[80%] top-1/2 z-40 h-[40px] w-[40px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_40px_rgba(255,255,255,1),0_0_100px_rgba(255,255,255,0.9)] will-change-transform"
+            />
 
-            <motion.div style={{ opacity: finalWhiteOpacity }} className="pointer-events-none absolute inset-0 z-50 bg-white" />
+            <motion.div
+                style={{
+                    opacity: finalWhiteOpacity,
+                }}
+                className="pointer-events-none absolute inset-0 z-50 bg-white"
+            />
 
             {/* =====================================================
                 STAGE 3
+                75% → 100%
                 TESTIMONIALS
             ===================================================== */}
 
-            <motion.div style={{ opacity: nextSectionOpacity, y: nextSectionY }} className="absolute inset-0 z-[60] overflow-hidden bg-white text-[#061a24] will-change-transform">
+            <motion.div
+                style={{
+                    opacity: nextSectionOpacity,
+                    y: nextSectionY,
+                }}
+                className="absolute inset-0 z-[60] overflow-hidden bg-white text-[#061a24] will-change-transform"
+            >
 
                 <div className="pointer-events-none absolute -right-[180px] -top-[220px] h-[600px] w-[600px] rounded-full bg-cyan-400/[0.09] blur-[180px]" />
 
@@ -297,9 +395,10 @@ const nextSectionY = useTransform(
                     <div className="mb-10 grid grid-cols-1 gap-4 md:grid-cols-3">
 
                         {stats.map((s, i) => (
-
-                            <div key={i} className="group rounded-2xl border border-black/[0.06] bg-black/[0.02] p-5 text-center transition duration-500 hover:border-cyan-500/20 hover:bg-cyan-500/[0.025]">
-
+                            <div
+                                key={i}
+                                className="group rounded-2xl border border-black/[0.06] bg-black/[0.02] p-5 text-center transition duration-500 hover:border-cyan-500/20 hover:bg-cyan-500/[0.025]"
+                            >
                                 <h3 className="text-3xl font-semibold tracking-tight text-cyan-600">
                                     {s.value}
                                 </h3>
@@ -307,9 +406,7 @@ const nextSectionY = useTransform(
                                 <p className="mt-1 text-xs text-black/35">
                                     {s.label}
                                 </p>
-
                             </div>
-
                         ))}
 
                     </div>
@@ -317,8 +414,10 @@ const nextSectionY = useTransform(
                     <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
 
                         {testimonials.map((t, i) => (
-
-                            <div key={i} className="group relative overflow-hidden rounded-3xl border border-black/[0.06] bg-black/[0.02] p-6 transition duration-500 hover:-translate-y-1 hover:border-cyan-500/20 hover:bg-cyan-500/[0.025]">
+                            <div
+                                key={i}
+                                className="group relative overflow-hidden rounded-3xl border border-black/[0.06] bg-black/[0.02] p-6 transition duration-500 hover:-translate-y-1 hover:border-cyan-500/20 hover:bg-cyan-500/[0.025]"
+                            >
 
                                 <div className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-400/[0.10] blur-[70px] opacity-0 transition duration-700 group-hover:opacity-100" />
 
@@ -339,7 +438,6 @@ const nextSectionY = useTransform(
                                     </div>
 
                                     <div>
-
                                         <h4 className="text-sm font-semibold text-[#061a24]">
                                             {t.name}
                                         </h4>
@@ -347,13 +445,11 @@ const nextSectionY = useTransform(
                                         <span className="text-xs text-black/35">
                                             {t.role}
                                         </span>
-
                                     </div>
 
                                 </div>
 
                             </div>
-
                         ))}
 
                     </div>
@@ -365,3 +461,4 @@ const nextSectionY = useTransform(
         </div>
     );
 }
+

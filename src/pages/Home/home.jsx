@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import { FrameContent } from "./frame_content";
 import ExperienceLoader from "../loading.jsx";
@@ -11,6 +12,15 @@ import {
 
 export default function Home() {
     const TOTAL_FRAMES = 695;
+
+    /*
+    ============================================================
+    LOADING SETTINGS
+    ============================================================
+    */
+
+    const INITIAL_FRAMES = 100;
+    const BATCH_SIZE = 50;
 
     /*
     ============================================================
@@ -43,7 +53,7 @@ export default function Home() {
     const imageCache = useRef([]);
 
     /*
-    Prevent duplicate image requests.
+    Prevent duplicate requests.
     */
 
     const loadingFrames = useRef(new Set());
@@ -55,6 +65,14 @@ export default function Home() {
     */
 
     const cancelledRef = useRef(false);
+
+    /*
+    ============================================================
+    BACKGROUND LOADING
+    ============================================================
+    */
+
+    const nextBatchRef = useRef(INITIAL_FRAMES + 1);
 
     /*
     ============================================================
@@ -97,12 +115,9 @@ export default function Home() {
 
                 imageCache.current[frameNumber - 1] = image;
 
-                setLoadedFrames((previous) => {
-                    return Math.min(
-                        TOTAL_FRAMES,
-                        previous + 1
-                    );
-                });
+                setLoadedFrames((previous) =>
+                    Math.min(TOTAL_FRAMES, previous + 1)
+                );
 
                 resolve();
             };
@@ -116,12 +131,9 @@ export default function Home() {
                 );
 
                 if (!cancelledRef.current) {
-                    setLoadedFrames((previous) => {
-                        return Math.min(
-                            TOTAL_FRAMES,
-                            previous + 1
-                        );
-                    });
+                    setLoadedFrames((previous) =>
+                        Math.min(TOTAL_FRAMES, previous + 1)
+                    );
                 }
 
                 resolve();
@@ -133,48 +145,31 @@ export default function Home() {
 
     /*
     ============================================================
-    LOAD ALL FRAMES
+    LOAD BATCH
     ============================================================
     */
 
-    const loadAllFrames = async () => {
-        /*
-        Create array:
+    const loadBatch = async (startFrame, endFrame) => {
+        if (cancelledRef.current) {
+            return;
+        }
 
-        1, 2, 3 ... 695
-        */
+        const frames = [];
 
-        const frames = Array.from(
-            { length: TOTAL_FRAMES },
-            (_, index) => index + 1
-        );
-
-        /*
-        ========================================================
-        LOAD EVERYTHING CONCURRENTLY
-        ========================================================
-
-        All 695 image requests are started together.
-        The browser will internally manage the actual
-        network concurrency.
-        */
+        for (
+            let frameNumber = startFrame;
+            frameNumber <= endFrame &&
+            frameNumber <= TOTAL_FRAMES;
+            frameNumber++
+        ) {
+            frames.push(frameNumber);
+        }
 
         await Promise.all(
             frames.map((frameNumber) =>
                 loadFrame(frameNumber)
             )
         );
-
-        if (cancelledRef.current) {
-            return;
-        }
-
-        /*
-        Make sure all frames are available before
-        displaying the website.
-        */
-
-        setIsReady(true);
     };
 
     /*
@@ -186,12 +181,87 @@ export default function Home() {
     useEffect(() => {
         cancelledRef.current = false;
 
-        loadAllFrames();
+        const loadInitialFrames = async () => {
+            await loadBatch(1, INITIAL_FRAMES);
+
+            if (cancelledRef.current) {
+                return;
+            }
+
+            /*
+            First 100 frames are ready.
+            Show the website.
+            */
+
+            setIsReady(true);
+
+            /*
+            Start loading the remaining frames
+            in the background.
+            */
+
+            nextBatchRef.current =
+                INITIAL_FRAMES + 1;
+        };
+
+        loadInitialFrames();
 
         return () => {
             cancelledRef.current = true;
         };
     }, []);
+
+    /*
+    ============================================================
+    BACKGROUND FRAME LOADING
+    ============================================================
+    */
+
+    useEffect(() => {
+        if (!isReady) {
+            return;
+        }
+
+        let cancelled = false;
+
+        const loadRemainingFrames = async () => {
+            while (
+                nextBatchRef.current <= TOTAL_FRAMES &&
+                !cancelled &&
+                !cancelledRef.current
+            ) {
+                const start =
+                    nextBatchRef.current;
+
+                const end =
+                    Math.min(
+                        start + BATCH_SIZE - 1,
+                        TOTAL_FRAMES
+                    );
+
+                await loadBatch(start, end);
+
+                nextBatchRef.current =
+                    end + 1;
+
+                /*
+                Give the browser a small opportunity
+                to render/handle scrolling before
+                starting the next batch.
+                */
+
+                await new Promise((resolve) =>
+                    setTimeout(resolve, 30)
+                );
+            }
+        };
+
+        loadRemainingFrames();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isReady]);
 
     /*
     ============================================================
@@ -215,7 +285,7 @@ export default function Home() {
 
     /*
     ============================================================
-    LOCK PAGE UNTIL ALL FRAMES ARE LOADED
+    LOCK PAGE ONLY DURING INITIAL 100 FRAME LOAD
     ============================================================
     */
 
@@ -247,24 +317,67 @@ export default function Home() {
             return;
         }
 
+        const homeSection =
+            document.querySelector(
+                "main#Home > section"
+            );
+
+        if (!homeSection) {
+            return;
+        }
+
         const handleScroll = () => {
-            const maxScroll =
-                document.documentElement.scrollHeight -
+            /*
+            ====================================================
+            HOME SECTION POSITION
+            ====================================================
+            */
+
+            const sectionTop =
+                homeSection.offsetTop;
+
+            const sectionHeight =
+                homeSection.offsetHeight;
+
+            /*
+            Because the sticky container is h-screen,
+            the usable scroll distance is:
+
+            section height - viewport height
+            */
+
+            const scrollDistance =
+                sectionHeight -
                 window.innerHeight;
 
-            if (maxScroll <= 0) {
+            if (scrollDistance <= 0) {
                 return;
             }
 
-            const scrollY = window.scrollY;
+            /*
+            ====================================================
+            RELATIVE HOME PROGRESS
+            ====================================================
+            */
+
+            const relativeScroll =
+                window.scrollY -
+                sectionTop;
 
             const progress = Math.max(
                 0,
                 Math.min(
                     1,
-                    scrollY / maxScroll
+                    relativeScroll /
+                        scrollDistance
                 )
             );
+
+            /*
+            ====================================================
+            0 → 694
+            ====================================================
+            */
 
             const calculatedFrame =
                 1 +
@@ -287,7 +400,7 @@ export default function Home() {
                 currentFrame.current;
 
             /*
-            Smooth frame movement.
+            Smooth cinematic movement.
             */
 
             currentFrame.current +=
@@ -309,9 +422,9 @@ export default function Home() {
             );
 
             /*
-            Since ALL frames are already loaded,
-            we don't need to check for missing
-            frames or preload anything.
+            ====================================================
+            IF FRAME IS LOADED
+            ====================================================
             */
 
             if (
@@ -328,6 +441,88 @@ export default function Home() {
 
                     setFrame(
                         requestedFrame
+                    );
+                }
+            } else {
+                /*
+                =================================================
+                FRAME NOT LOADED YET
+                =================================================
+
+                Find the closest loaded frame so
+                the animation never goes blank.
+                */
+
+                let fallbackFrame =
+                    lastFrame.current;
+
+                /*
+                Look forward a little.
+                */
+
+                for (
+                    let i = 0;
+                    i <= 10;
+                    i++
+                ) {
+                    const candidate =
+                        requestedFrame + i;
+
+                    if (
+                        candidate <=
+                            TOTAL_FRAMES &&
+                        imageCache.current[
+                            candidate - 1
+                        ]
+                    ) {
+                        fallbackFrame =
+                            candidate;
+
+                        break;
+                    }
+                }
+
+                /*
+                Look backward if necessary.
+                */
+
+                if (
+                    !imageCache.current[
+                        fallbackFrame - 1
+                    ]
+                ) {
+                    for (
+                        let i = 1;
+                        i <= 10;
+                        i++
+                    ) {
+                        const candidate =
+                            requestedFrame -
+                            i;
+
+                        if (
+                            candidate >= 1 &&
+                            imageCache.current[
+                                candidate - 1
+                            ]
+                        ) {
+                            fallbackFrame =
+                                candidate;
+
+                            break;
+                        }
+                    }
+                }
+
+                if (
+                    fallbackFrame !==
+                    lastFrame.current
+                ) {
+                    lastFrame.current =
+                        fallbackFrame;
+
+                    setFrame(
+                        fallbackFrame
                     );
                 }
             }
@@ -394,7 +589,7 @@ export default function Home() {
             Math.round(
                 (
                     loadedFrames /
-                    TOTAL_FRAMES
+                    INITIAL_FRAMES
                 ) * 100
             )
         );
@@ -565,11 +760,14 @@ export default function Home() {
                     <div className="mt-8 space-y-3">
                         {marketingSteps.map(
                             (item, index) => {
-                                const Icon = item.icon;
+                                const Icon =
+                                    item.icon;
 
                                 return (
                                     <motion.div
-                                        key={item.title}
+                                        key={
+                                            item.title
+                                        }
                                         initial={{
                                             opacity: 0,
                                             x: -120,
@@ -609,7 +807,9 @@ export default function Home() {
                                         <div className="relative min-w-0">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.15)]">
-                                                    {item.title}
+                                                    {
+                                                        item.title
+                                                    }
                                                 </span>
 
                                                 <span className="text-xs text-cyan-300/50">
@@ -617,12 +817,16 @@ export default function Home() {
                                                 </span>
 
                                                 <span className="text-xs text-cyan-100/60">
-                                                    {item.label}
+                                                    {
+                                                        item.label
+                                                    }
                                                 </span>
                                             </div>
 
                                             <p className="mt-1 text-xs leading-5 text-white/55">
-                                                {item.desc}
+                                                {
+                                                    item.desc
+                                                }
                                             </p>
 
                                             <div className="mt-2 flex items-center gap-2">
@@ -801,3 +1005,4 @@ export default function Home() {
         </>
     );
 }
+

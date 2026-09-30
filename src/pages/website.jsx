@@ -16,14 +16,14 @@ export const Website= ({logo}) => {
         <div className="bg-[#0f172a] text-white ">
             <Navbar logo={logo} />
             <main id="Home" className="relative w-full bg-black">
-                <section className="relative h-[800vh]">
+                <section id="Home" className="relative h-[1000vh]">
                     <div className="sticky top-0 h-screen overflow-hidden">
                         <Home />
                     </div>
                 </section>
             </main>
 
-            <section id="Features" ref={sectionRef} className="relative h-[1000vh] bg-white">
+            <section id="Features" ref={sectionRef} className="relative h-[400vh] bg-white">
                 <FeatureStarSection sectionRef={sectionRef} />
             </section>
 
