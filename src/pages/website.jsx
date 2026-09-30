@@ -16,7 +16,7 @@ export const Website= ({logo}) => {
         <div className="bg-[#0f172a] text-white ">
             <Navbar logo={logo} />
             <main id="Home" className="relative w-full bg-black">
-                <section className="relative h-[12000vh]">
+                <section className="relative h-[4000vh]">
                     <div className="sticky top-0 h-screen overflow-hidden">
                         <Home />
                     </div>
