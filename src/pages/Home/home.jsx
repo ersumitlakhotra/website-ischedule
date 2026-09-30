@@ -1,3 +1,4 @@
+
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { useEffect, useRef, useState } from "react";
@@ -14,8 +15,6 @@ import {
 export default function Home() {
 
     const TOTAL_FRAMES = 695;
-    const INITIAL_FRAMES = 695;
-    const BATCH_SIZE = 30;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
@@ -27,8 +26,6 @@ export default function Home() {
 
     const rafRef = useRef(null);
     const imageCache = useRef([]);
-    const loadingFrames = useRef(new Set());
-    const cancelledRef = useRef(false);
 
     /*
     |--------------------------------------------------------------------------
@@ -42,183 +39,117 @@ export default function Home() {
 
     /*
     |--------------------------------------------------------------------------
-    | LOAD SINGLE FRAME
-    |--------------------------------------------------------------------------
-    */
-
-    const loadFrame = (frameNumber) => {
-        if (
-            frameNumber < 1 ||
-            frameNumber > TOTAL_FRAMES ||
-            imageCache.current[frameNumber - 1] ||
-            loadingFrames.current.has(frameNumber)
-        ) {
-            return Promise.resolve();
-        }
-
-        loadingFrames.current.add(frameNumber);
-
-        return new Promise((resolve) => {
-            const image = new Image();
-
-            image.onload = () => {
-                loadingFrames.current.delete(frameNumber);
-
-                if (cancelledRef.current) {
-                    resolve();
-                    return;
-                }
-
-                imageCache.current[frameNumber - 1] = image;
-
-                setLoadedFrames((previous) => previous + 1);
-
-                resolve();
-            };
-
-            image.onerror = () => {
-                loadingFrames.current.delete(frameNumber);
-
-                if (!cancelledRef.current) {
-                    setLoadedFrames((previous) => previous + 1);
-                }
-
-                resolve();
-            };
-
-            image.src = getFramePath(frameNumber);
-        });
-    };
-
-    /*
-    |--------------------------------------------------------------------------
-    | INITIAL + BACKGROUND LOADING
+    | LOAD ALL FRAMES
     |--------------------------------------------------------------------------
     */
 
     useEffect(() => {
-        cancelledRef.current = false;
 
-        const loadInitialFrames = async () => {
-            const initialBatch = [];
+        let cancelled = false;
 
-            for (let i = 1; i <= INITIAL_FRAMES; i++) {
-                initialBatch.push(i);
-            }
+        const loadAllFrames = async () => {
 
-            await Promise.all(
-                initialBatch.map((frameNumber) => loadFrame(frameNumber))
+            const promises = Array.from(
+                { length: TOTAL_FRAMES },
+                (_, index) => {
+
+                    const frameNumber = index + 1;
+
+                    return new Promise((resolve) => {
+
+                        const image = new Image();
+
+                        image.onload = () => {
+
+                            if (!cancelled) {
+                                imageCache.current[index] = image;
+
+                                setLoadedFrames(
+                                    (previous) => previous + 1
+                                );
+                            }
+
+                            resolve();
+
+                        };
+
+                        image.onerror = () => {
+
+                            if (!cancelled) {
+                                setLoadedFrames(
+                                    (previous) => previous + 1
+                                );
+                            }
+
+                            resolve();
+
+                        };
+
+                        image.src = getFramePath(frameNumber);
+
+                    });
+
+                }
             );
 
-            if (cancelledRef.current) return;
+            await Promise.all(promises);
 
-            setIsReady(true);
-
-            loadRemainingFrames();
-        };
-
-        const loadRemainingFrames = async () => {
-            while (
-                !cancelledRef.current &&
-                imageCache.current.filter(Boolean).length < TOTAL_FRAMES
-            ) {
-                const center = Math.round(targetFrame.current);
-
-                const candidates = [];
-
-                for (let i = INITIAL_FRAMES + 1; i <= TOTAL_FRAMES; i++) {
-                    if (
-                        !imageCache.current[i - 1] &&
-                        !loadingFrames.current.has(i)
-                    ) {
-                        candidates.push(i);
-                    }
-                }
-
-                if (candidates.length === 0) {
-                    break;
-                }
-
-                candidates.sort((a, b) => {
-                    return Math.abs(a - center) - Math.abs(b - center);
-                });
-
-                const batch = candidates.slice(0, BATCH_SIZE);
-
-                await Promise.all(
-                    batch.map((frameNumber) => loadFrame(frameNumber))
-                );
-
-                if (cancelledRef.current) return;
-
-                await new Promise((resolve) => {
-                    setTimeout(resolve, 20);
-                });
+            if (!cancelled) {
+                setIsReady(true);
             }
+
         };
 
-        loadInitialFrames();
+        loadAllFrames();
 
         return () => {
-            cancelledRef.current = true;
+            cancelled = true;
         };
+
     }, []);
+
+    useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual";
+    }
+
+    window.scrollTo(0, 0);
+
+    return () => {
+        if ("scrollRestoration" in window.history) {
+            window.history.scrollRestoration = "auto";
+        }
+    };
+}, []);
 
     /*
     |--------------------------------------------------------------------------
-    | LOCK PAGE WHILE FIRST 100 FRAMES LOAD
+    | LOCK PAGE WHILE IMAGES LOAD
     |--------------------------------------------------------------------------
     */
 
     useEffect(() => {
+
         if (isReady) {
+
             document.body.style.overflow = "";
             document.documentElement.style.overflow = "";
 
             return;
+
         }
 
         document.body.style.overflow = "hidden";
         document.documentElement.style.overflow = "hidden";
 
         return () => {
+
             document.body.style.overflow = "";
             document.documentElement.style.overflow = "";
+
         };
+
     }, [isReady]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | FIND CLOSEST AVAILABLE FRAME
-    |--------------------------------------------------------------------------
-    */
-
-    const getAvailableFrame = (requestedFrame) => {
-        if (imageCache.current[requestedFrame - 1]) {
-            return requestedFrame;
-        }
-
-        for (let distance = 1; distance <= TOTAL_FRAMES; distance++) {
-            const previous = requestedFrame - distance;
-            const next = requestedFrame + distance;
-
-            if (
-                previous >= 1 &&
-                imageCache.current[previous - 1]
-            ) {
-                return previous;
-            }
-
-            if (
-                next <= TOTAL_FRAMES &&
-                imageCache.current[next - 1]
-            ) {
-                return next;
-            }
-        }
-
-        return 1;
-    };
 
     /*
     |--------------------------------------------------------------------------
@@ -226,10 +157,8 @@ export default function Home() {
     |--------------------------------------------------------------------------
     */
 
-    const availableFrame = getAvailableFrame(frame);
-
     const currentImage =
-        imageCache.current[availableFrame - 1];
+        imageCache.current[frame - 1];
 
     const currentImageSrc =
         currentImage?.src ||
@@ -242,9 +171,11 @@ export default function Home() {
     */
 
     useEffect(() => {
+
         if (!isReady) return;
 
         const handleScroll = () => {
+
             const maxScroll =
                 document.documentElement.scrollHeight -
                 window.innerHeight;
@@ -252,20 +183,31 @@ export default function Home() {
             if (maxScroll <= 0) return;
 
             const progress =
-                Math.max(0, Math.min(1, window.scrollY / maxScroll));
+                Math.max(
+                    0,
+                    Math.min(
+                        1,
+                        window.scrollY / maxScroll
+                    )
+                );
 
             targetFrame.current =
                 1 + progress * (TOTAL_FRAMES - 1);
+
         };
 
         const animate = () => {
-            const difference =
-                targetFrame.current - currentFrame.current;
 
-            currentFrame.current += difference * 0.10;
+            const difference =
+                targetFrame.current -
+                currentFrame.current;
+
+            currentFrame.current +=
+                difference * 0.10;
 
             if (Math.abs(difference) < 0.01) {
-                currentFrame.current = targetFrame.current;
+                currentFrame.current =
+                    targetFrame.current;
             }
 
             const requestedFrame =
@@ -273,20 +215,27 @@ export default function Home() {
                     1,
                     Math.min(
                         TOTAL_FRAMES,
-                        Math.round(currentFrame.current)
+                        Math.round(
+                            currentFrame.current
+                        )
                     )
                 );
 
-            const renderFrame =
-                getAvailableFrame(requestedFrame);
+            if (
+                requestedFrame !==
+                lastFrame.current
+            ) {
 
-            if (renderFrame !== lastFrame.current) {
-                lastFrame.current = renderFrame;
-                setFrame(renderFrame);
+                lastFrame.current =
+                    requestedFrame;
+
+                setFrame(requestedFrame);
+
             }
 
             rafRef.current =
                 requestAnimationFrame(animate);
+
         };
 
         window.addEventListener(
@@ -301,15 +250,20 @@ export default function Home() {
             requestAnimationFrame(animate);
 
         return () => {
+
             window.removeEventListener(
                 "scroll",
                 handleScroll
             );
 
             if (rafRef.current) {
-                cancelAnimationFrame(rafRef.current);
+                cancelAnimationFrame(
+                    rafRef.current
+                );
             }
+
         };
+
     }, [isReady]);
 
     /*
@@ -358,22 +312,23 @@ export default function Home() {
     const loadingPercentage = Math.min(
         100,
         Math.round(
-            (Math.min(loadedFrames, INITIAL_FRAMES) /
-                INITIAL_FRAMES) *
-                100
+            (loadedFrames / TOTAL_FRAMES) * 100
         )
     );
 
     if (!isReady) {
+
         return (
             <ExperienceLoader
                 progress={loadingPercentage}
             />
         );
+
     }
 
     return (
         <>
+
             {/* Background */}
 
             <div className="fixed inset-0 z-0 h-screen w-screen overflow-hidden bg-black">
@@ -462,13 +417,18 @@ export default function Home() {
                 title=""
                 description={
                     <div className="mt-8 space-y-3">
+
                         {marketingSteps.map((item, index) => {
+
                             const Icon = item.icon;
 
                             return (
                                 <motion.div
                                     key={item.title}
-                                    initial={{ opacity: 0, x: -120 }}
+                                    initial={{
+                                        opacity: 0,
+                                        x: -120,
+                                    }}
                                     animate={{
                                         opacity: 1,
                                         x: 0,
@@ -532,12 +492,14 @@ export default function Home() {
                                         <div className="mt-2 flex items-center gap-2">
 
                                             {item.points.map((point) => (
+
                                                 <span
                                                     key={point}
                                                     className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                 >
                                                     {point}
                                                 </span>
+
                                             ))}
 
                                         </div>
@@ -554,7 +516,9 @@ export default function Home() {
 
                                 </motion.div>
                             );
+
                         })}
+
                     </div>
                 }
             />
@@ -563,10 +527,14 @@ export default function Home() {
             {/* Scroll Indicator */}
 
             {frame < 70 && (
+
                 <motion.div
                     className="pointer-events-none fixed inset-0 z-40"
                     animate={{
-                        opacity: Math.max(0, 1 - frame / 45),
+                        opacity: Math.max(
+                            0,
+                            1 - frame / 45
+                        ),
                     }}
                     transition={{
                         duration: 0.15,
@@ -583,10 +551,19 @@ export default function Home() {
                     <div className="relative flex h-full items-center justify-end">
 
                         <motion.div
-                            initial={{ opacity: 0, x: 60 }}
+                            initial={{
+                                opacity: 0,
+                                x: 60,
+                            }}
                             animate={{
-                                opacity: Math.max(0, 1 - frame / 35),
-                                x: Math.min(60, frame * 1.5),
+                                opacity: Math.max(
+                                    0,
+                                    1 - frame / 35
+                                ),
+                                x: Math.min(
+                                    60,
+                                    frame * 1.5
+                                ),
                             }}
                             transition={{
                                 duration: 0.2,
@@ -612,9 +589,15 @@ export default function Home() {
                     {/* Bottom-center scroll indicator */}
 
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{
+                            opacity: 0,
+                            y: 20,
+                        }}
                         animate={{
-                            opacity: Math.max(0, 1 - frame / 30),
+                            opacity: Math.max(
+                                0,
+                                1 - frame / 30
+                            ),
                             y: frame === 1 ? 0 : 20,
                         }}
                         transition={{
@@ -679,6 +662,7 @@ export default function Home() {
                     </motion.div>
 
                 </motion.div>
+
             )}
 
         </>
