@@ -15,6 +15,8 @@ import {
 export default function Home() {
 
     const TOTAL_FRAMES = 695;
+    const INITIAL_FRAMES = 200;
+    const BATCH_SIZE = 12;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
@@ -25,7 +27,10 @@ export default function Home() {
     const lastFrame = useRef(1);
 
     const rafRef = useRef(null);
+
     const imageCache = useRef([]);
+    const loadingFrames = useRef(new Set());
+    const cancelledRef = useRef(false);
 
     /*
     |--------------------------------------------------------------------------
@@ -39,92 +44,195 @@ export default function Home() {
 
     /*
     |--------------------------------------------------------------------------
-    | LOAD ALL FRAMES
+    | LOAD SINGLE FRAME
+    |--------------------------------------------------------------------------
+    */
+
+    const loadFrame = (frameNumber) => {
+
+        if (
+            frameNumber < 1 ||
+            frameNumber > TOTAL_FRAMES ||
+            imageCache.current[frameNumber - 1] ||
+            loadingFrames.current.has(frameNumber)
+        ) {
+            return Promise.resolve();
+        }
+
+        loadingFrames.current.add(frameNumber);
+
+        return new Promise((resolve) => {
+
+            const image = new Image();
+
+            image.onload = () => {
+
+                loadingFrames.current.delete(frameNumber);
+
+                if (!cancelledRef.current) {
+
+                    imageCache.current[frameNumber - 1] = image;
+
+                    setLoadedFrames(
+                        (previous) => previous + 1
+                    );
+
+                }
+
+                resolve();
+
+            };
+
+            image.onerror = () => {
+
+                loadingFrames.current.delete(frameNumber);
+
+                if (!cancelledRef.current) {
+
+                    setLoadedFrames(
+                        (previous) => previous + 1
+                    );
+
+                }
+
+                resolve();
+
+            };
+
+            image.src = getFramePath(frameNumber);
+
+        });
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOAD FIRST 200 FRAMES
     |--------------------------------------------------------------------------
     */
 
     useEffect(() => {
 
-        let cancelled = false;
+        cancelledRef.current = false;
 
-        const loadAllFrames = async () => {
+        const loadInitialFrames = async () => {
 
-            const promises = Array.from(
-                { length: TOTAL_FRAMES },
-                (_, index) => {
+            const initialBatch = [];
 
-                    const frameNumber = index + 1;
+            for (
+                let i = 1;
+                i <= INITIAL_FRAMES;
+                i++
+            ) {
+                initialBatch.push(i);
+            }
 
-                    return new Promise((resolve) => {
-
-                        const image = new Image();
-
-                        image.onload = () => {
-
-                            if (!cancelled) {
-                                imageCache.current[index] = image;
-
-                                setLoadedFrames(
-                                    (previous) => previous + 1
-                                );
-                            }
-
-                            resolve();
-
-                        };
-
-                        image.onerror = () => {
-
-                            if (!cancelled) {
-                                setLoadedFrames(
-                                    (previous) => previous + 1
-                                );
-                            }
-
-                            resolve();
-
-                        };
-
-                        image.src = getFramePath(frameNumber);
-
-                    });
-
-                }
+            await Promise.all(
+                initialBatch.map((frameNumber) =>
+                    loadFrame(frameNumber)
+                )
             );
 
-            await Promise.all(promises);
+            if (cancelledRef.current) {
+                return;
+            }
 
-            if (!cancelled) {
-                setIsReady(true);
+            setIsReady(true);
+
+            /*
+            |------------------------------------------------------------------
+            | Start loading remaining frames in background
+            |------------------------------------------------------------------
+            */
+
+            loadRemainingFrames();
+
+        };
+
+        const loadRemainingFrames = async () => {
+
+            while (!cancelledRef.current) {
+
+                const center =
+                    Math.round(targetFrame.current);
+
+                const candidates = [];
+
+                for (
+                    let i = INITIAL_FRAMES + 1;
+                    i <= TOTAL_FRAMES;
+                    i++
+                ) {
+
+                    if (
+                        !imageCache.current[i - 1] &&
+                        !loadingFrames.current.has(i)
+                    ) {
+
+                        candidates.push(i);
+
+                    }
+
+                }
+
+                if (candidates.length === 0) {
+                    break;
+                }
+
+                /*
+                |----------------------------------------------------------------
+                | Prioritize frames closest to current scroll position
+                |----------------------------------------------------------------
+                */
+
+                candidates.sort((a, b) => {
+
+                    return (
+                        Math.abs(a - center) -
+                        Math.abs(b - center)
+                    );
+
+                });
+
+                const batch =
+                    candidates.slice(0, BATCH_SIZE);
+
+                await Promise.all(
+                    batch.map((frameNumber) =>
+                        loadFrame(frameNumber)
+                    )
+                );
+
+                if (cancelledRef.current) {
+                    return;
+                }
+
+                /*
+                |----------------------------------------------------------------
+                | Small delay so background loading doesn't dominate the browser
+                |----------------------------------------------------------------
+                */
+
+                await new Promise((resolve) => {
+                    setTimeout(resolve, 15);
+                });
+
             }
 
         };
 
-        loadAllFrames();
+        loadInitialFrames();
 
         return () => {
-            cancelled = true;
+
+            cancelledRef.current = true;
+
         };
 
     }, []);
 
-    useEffect(() => {
-    if ("scrollRestoration" in window.history) {
-        window.history.scrollRestoration = "manual";
-    }
-
-    window.scrollTo(0, 0);
-
-    return () => {
-        if ("scrollRestoration" in window.history) {
-            window.history.scrollRestoration = "auto";
-        }
-    };
-}, []);
-
     /*
     |--------------------------------------------------------------------------
-    | LOCK PAGE WHILE IMAGES LOAD
+    | LOCK PAGE WHILE FIRST 200 FRAMES LOAD
     |--------------------------------------------------------------------------
     */
 
@@ -153,12 +261,65 @@ export default function Home() {
 
     /*
     |--------------------------------------------------------------------------
+    | FIND CLOSEST AVAILABLE FRAME
+    |--------------------------------------------------------------------------
+    */
+
+    const getAvailableFrame = (requestedFrame) => {
+
+        if (
+            imageCache.current[requestedFrame - 1]
+        ) {
+            return requestedFrame;
+        }
+
+        for (
+            let distance = 1;
+            distance <= TOTAL_FRAMES;
+            distance++
+        ) {
+
+            const previous =
+                requestedFrame - distance;
+
+            const next =
+                requestedFrame + distance;
+
+            if (
+                previous >= 1 &&
+                imageCache.current[previous - 1]
+            ) {
+
+                return previous;
+
+            }
+
+            if (
+                next <= TOTAL_FRAMES &&
+                imageCache.current[next - 1]
+            ) {
+
+                return next;
+
+            }
+
+        }
+
+        return 1;
+
+    };
+
+    /*
+    |--------------------------------------------------------------------------
     | CURRENT IMAGE
     |--------------------------------------------------------------------------
     */
 
+    const availableFrame =
+        getAvailableFrame(frame);
+
     const currentImage =
-        imageCache.current[frame - 1];
+        imageCache.current[availableFrame - 1];
 
     const currentImageSrc =
         currentImage?.src ||
@@ -172,7 +333,9 @@ export default function Home() {
 
     useEffect(() => {
 
-        if (!isReady) return;
+        if (!isReady) {
+            return;
+        }
 
         const handleScroll = () => {
 
@@ -180,7 +343,9 @@ export default function Home() {
                 document.documentElement.scrollHeight -
                 window.innerHeight;
 
-            if (maxScroll <= 0) return;
+            if (maxScroll <= 0) {
+                return;
+            }
 
             const progress =
                 Math.max(
@@ -192,7 +357,9 @@ export default function Home() {
                 );
 
             targetFrame.current =
-                1 + progress * (TOTAL_FRAMES - 1);
+                1 +
+                progress *
+                (TOTAL_FRAMES - 1);
 
         };
 
@@ -205,9 +372,13 @@ export default function Home() {
             currentFrame.current +=
                 difference * 0.10;
 
-            if (Math.abs(difference) < 0.01) {
+            if (
+                Math.abs(difference) < 0.01
+            ) {
+
                 currentFrame.current =
                     targetFrame.current;
+
             }
 
             const requestedFrame =
@@ -221,33 +392,44 @@ export default function Home() {
                     )
                 );
 
+            const renderFrame =
+                getAvailableFrame(
+                    requestedFrame
+                );
+
             if (
-                requestedFrame !==
+                renderFrame !==
                 lastFrame.current
             ) {
 
                 lastFrame.current =
-                    requestedFrame;
+                    renderFrame;
 
-                setFrame(requestedFrame);
+                setFrame(renderFrame);
 
             }
 
             rafRef.current =
-                requestAnimationFrame(animate);
+                requestAnimationFrame(
+                    animate
+                );
 
         };
 
         window.addEventListener(
             "scroll",
             handleScroll,
-            { passive: true }
+            {
+                passive: true,
+            }
         );
 
         handleScroll();
 
         rafRef.current =
-            requestAnimationFrame(animate);
+            requestAnimationFrame(
+                animate
+            );
 
         return () => {
 
@@ -257,9 +439,11 @@ export default function Home() {
             );
 
             if (rafRef.current) {
+
                 cancelAnimationFrame(
                     rafRef.current
                 );
+
             }
 
         };
@@ -278,28 +462,44 @@ export default function Home() {
             title: "Loyalty",
             label: "Build Relationships",
             desc: "Reward loyal customers and encourage them to keep coming back.",
-            points: ["Rewards", "Points", "Repeat Visits"],
+            points: [
+                "Rewards",
+                "Points",
+                "Repeat Visits",
+            ],
         },
         {
             icon: Megaphone,
             title: "Promote",
             label: "Reach Customers",
             desc: "Create targeted promotions that help turn more customers into bookings.",
-            points: ["Offers", "Campaigns", "Promotions"],
+            points: [
+                "Offers",
+                "Campaigns",
+                "Promotions",
+            ],
         },
         {
             icon: MessageCircle,
             title: "Engage",
             label: "Stay Connected",
             desc: "Keep customers engaged with timely communication and automated updates.",
-            points: ["Messages", "Reminders", "Notifications"],
+            points: [
+                "Messages",
+                "Reminders",
+                "Notifications",
+            ],
         },
         {
             icon: TrendingUp,
             title: "Grow",
             label: "Drive Growth",
             desc: "Understand customer behavior and use insights to increase retention and bookings.",
-            points: ["Insights", "Retention", "Bookings"],
+            points: [
+                "Insights",
+                "Retention",
+                "Bookings",
+            ],
         },
     ];
 
@@ -309,12 +509,20 @@ export default function Home() {
     |--------------------------------------------------------------------------
     */
 
-    const loadingPercentage = Math.min(
-        100,
-        Math.round(
-            (loadedFrames / TOTAL_FRAMES) * 100
-        )
-    );
+    const loadingPercentage =
+        Math.min(
+            100,
+            Math.round(
+                (
+                    Math.min(
+                        loadedFrames,
+                        INITIAL_FRAMES
+                    ) /
+                    INITIAL_FRAMES
+                ) *
+                100
+            )
+        );
 
     if (!isReady) {
 
@@ -418,106 +626,116 @@ export default function Home() {
                 description={
                     <div className="mt-8 space-y-3">
 
-                        {marketingSteps.map((item, index) => {
+                        {marketingSteps.map(
+                            (item, index) => {
 
-                            const Icon = item.icon;
+                                const Icon =
+                                    item.icon;
 
-                            return (
-                                <motion.div
-                                    key={item.title}
-                                    initial={{
-                                        opacity: 0,
-                                        x: -120,
-                                    }}
-                                    animate={{
-                                        opacity: 1,
-                                        x: 0,
-                                    }}
-                                    transition={{
-                                        duration: 0.8,
-                                        delay: index * 0.22,
-                                        ease: [0.16, 1, 0.3, 1],
-                                    }}
-                                    className="group relative flex w-[480px] shrink-0 items-center gap-4 overflow-hidden rounded-2xl border border-cyan-300/30 bg-gradient-to-br from-cyan-400/[0.12] via-white/[0.07] to-cyan-950/[0.15] px-5 py-4 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.35),0_0_25px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(34,211,238,0.15)]"
-                                >
+                                return (
+                                    <motion.div
+                                        key={item.title}
+                                        initial={{
+                                            opacity: 0,
+                                            x: -120,
+                                        }}
+                                        animate={{
+                                            opacity: 1,
+                                            x: 0,
+                                        }}
+                                        transition={{
+                                            duration: 0.8,
+                                            delay: index * 0.22,
+                                            ease: [
+                                                0.16,
+                                                1,
+                                                0.3,
+                                                1,
+                                            ],
+                                        }}
+                                        className="group relative flex w-[480px] shrink-0 items-center gap-4 overflow-hidden rounded-2xl border border-cyan-300/30 bg-gradient-to-br from-cyan-400/[0.12] via-white/[0.07] to-cyan-950/[0.15] px-5 py-4 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.35),0_0_25px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(34,211,238,0.15)]"
+                                    >
 
-                                    {/* Outer glow */}
+                                        {/* Outer glow */}
 
-                                    <div className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-r from-cyan-300/30 via-cyan-400/5 to-cyan-300/20 opacity-70 blur-sm" />
+                                        <div className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-r from-cyan-300/30 via-cyan-400/5 to-cyan-300/20 opacity-70 blur-sm" />
 
-                                    {/* Top reflection */}
+                                        {/* Top reflection */}
 
-                                    <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" />
+                                        <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" />
 
-                                    {/* Inner glow */}
+                                        {/* Inner glow */}
 
-                                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-cyan-400/[0.08] via-transparent to-cyan-300/[0.04]" />
+                                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-cyan-400/[0.08] via-transparent to-cyan-300/[0.04]" />
 
-                                    {/* Icon */}
+                                        {/* Icon */}
 
-                                    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-200/20 bg-gradient-to-br from-cyan-300/[0.18] to-cyan-500/[0.05] shadow-[0_0_20px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.2)]">
+                                        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-200/20 bg-gradient-to-br from-cyan-300/[0.18] to-cyan-500/[0.05] shadow-[0_0_20px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.2)]">
 
-                                        <Icon
-                                            size={19}
-                                            strokeWidth={1.8}
-                                            className="text-cyan-200 drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]"
-                                        />
-
-                                    </div>
-
-                                    {/* Content */}
-
-                                    <div className="relative min-w-0">
-
-                                        <div className="flex items-center gap-2">
-
-                                            <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.15)]">
-                                                {item.title}
-                                            </span>
-
-                                            <span className="text-xs text-cyan-300/50">
-                                                •
-                                            </span>
-
-                                            <span className="text-xs text-cyan-100/60">
-                                                {item.label}
-                                            </span>
+                                            <Icon
+                                                size={19}
+                                                strokeWidth={1.8}
+                                                className="text-cyan-200 drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]"
+                                            />
 
                                         </div>
 
-                                        <p className="mt-1 text-xs leading-5 text-white/55">
-                                            {item.desc}
-                                        </p>
+                                        {/* Content */}
 
-                                        <div className="mt-2 flex items-center gap-2">
+                                        <div className="relative min-w-0">
 
-                                            {item.points.map((point) => (
+                                            <div className="flex items-center gap-2">
 
-                                                <span
-                                                    key={point}
-                                                    className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                                                >
-                                                    {point}
+                                                <span className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.15)]">
+                                                    {item.title}
                                                 </span>
 
-                                            ))}
+                                                <span className="text-xs text-cyan-300/50">
+                                                    •
+                                                </span>
+
+                                                <span className="text-xs text-cyan-100/60">
+                                                    {item.label}
+                                                </span>
+
+                                            </div>
+
+                                            <p className="mt-1 text-xs leading-5 text-white/55">
+                                                {item.desc}
+                                            </p>
+
+                                            <div className="mt-2 flex items-center gap-2">
+
+                                                {item.points.map(
+                                                    (point) => (
+
+                                                        <span
+                                                            key={point}
+                                                            className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                                                        >
+                                                            {point}
+                                                        </span>
+
+                                                    )
+                                                )}
+
+                                            </div>
 
                                         </div>
 
-                                    </div>
+                                        {/* Bottom reflection */}
 
-                                    {/* Bottom reflection */}
+                                        <div className="pointer-events-none absolute inset-x-5 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
 
-                                    <div className="pointer-events-none absolute inset-x-5 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
+                                        {/* Corner glow */}
 
-                                    {/* Corner glow */}
+                                        <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl" />
 
-                                    <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl" />
+                                    </motion.div>
+                                );
 
-                                </motion.div>
-                            );
-
-                        })}
+                            }
+                        )}
 
                     </div>
                 }
@@ -531,10 +749,11 @@ export default function Home() {
                 <motion.div
                     className="pointer-events-none fixed inset-0 z-40"
                     animate={{
-                        opacity: Math.max(
-                            0,
-                            1 - frame / 45
-                        ),
+                        opacity:
+                            Math.max(
+                                0,
+                                1 - frame / 45
+                            ),
                     }}
                     transition={{
                         duration: 0.15,
@@ -556,14 +775,16 @@ export default function Home() {
                                 x: 60,
                             }}
                             animate={{
-                                opacity: Math.max(
-                                    0,
-                                    1 - frame / 35
-                                ),
-                                x: Math.min(
-                                    60,
-                                    frame * 1.5
-                                ),
+                                opacity:
+                                    Math.max(
+                                        0,
+                                        1 - frame / 35
+                                    ),
+                                x:
+                                    Math.min(
+                                        60,
+                                        frame * 1.5
+                                    ),
                             }}
                             transition={{
                                 duration: 0.2,
@@ -594,11 +815,15 @@ export default function Home() {
                             y: 20,
                         }}
                         animate={{
-                            opacity: Math.max(
-                                0,
-                                1 - frame / 30
-                            ),
-                            y: frame === 1 ? 0 : 20,
+                            opacity:
+                                Math.max(
+                                    0,
+                                    1 - frame / 30
+                                ),
+                            y:
+                                frame === 1
+                                    ? 0
+                                    : 20,
                         }}
                         transition={{
                             duration: 0.25,
@@ -616,7 +841,11 @@ export default function Home() {
                                 <motion.div
                                     animate={{
                                         y: [0, 19, 0],
-                                        opacity: [1, 0.25, 1],
+                                        opacity: [
+                                            1,
+                                            0.25,
+                                            1,
+                                        ],
                                     }}
                                     transition={{
                                         duration: 1.8,
@@ -648,8 +877,16 @@ export default function Home() {
 
                         <motion.div
                             animate={{
-                                scaleX: [0.3, 1, 0.3],
-                                opacity: [0.2, 0.6, 0.2],
+                                scaleX: [
+                                    0.3,
+                                    1,
+                                    0.3,
+                                ],
+                                opacity: [
+                                    0.2,
+                                    0.6,
+                                    0.2,
+                                ],
                             }}
                             transition={{
                                 duration: 2.5,
@@ -668,3 +905,4 @@ export default function Home() {
         </>
     );
 }
+
