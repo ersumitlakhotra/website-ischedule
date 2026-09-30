@@ -14,7 +14,7 @@ import {
 export default function Home() {
 
     const TOTAL_FRAMES = 695;
-    const INITIAL_FRAMES = 100;
+    const INITIAL_FRAMES = 695;
     const BATCH_SIZE = 30;
 
     const [frame, setFrame] = useState(1);
