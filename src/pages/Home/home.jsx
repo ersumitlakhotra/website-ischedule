@@ -14,40 +14,9 @@ export default function Home() {
 
     /*
     ============================================================
-    LOADING SETTINGS
+    FRAME STATE
     ============================================================
     */
-
-    const INITIAL_FRAMES = 695;
-    const BATCH_SIZE = 50;
-
-    /*
-    Start loading the next batch this many frames
-    before reaching it.
-    */
-
-    const LOAD_TRIGGER = 30;
-
-    /*
-    Final batch starts loading this many frames
-    before the end.
-    */
-
-    const FINAL_BATCH_TRIGGER = 80;
-
-    /*
-    Fast scrolling:
-    How much frame movement is considered a fast jump.
-    */
-
-    const FAST_SCROLL_DISTANCE = 18;
-
-    /*
-    When fast scrolling, load destination batch
-    plus neighboring batches.
-    */
-
-    const FAST_SCROLL_BATCHES = 2;
 
     const [frame, setFrame] = useState(1);
     const [loadedFrames, setLoadedFrames] = useState(0);
@@ -74,34 +43,10 @@ export default function Home() {
     const imageCache = useRef([]);
 
     /*
-    Frames currently being downloaded.
-    Prevents duplicate network requests.
+    Prevent duplicate image requests.
     */
 
     const loadingFrames = useRef(new Set());
-
-    /*
-    Batches that have completely finished loading.
-    */
-
-    const loadedBatches = useRef(new Set());
-
-    /*
-    Batches currently being requested.
-    */
-
-    const loadingBatches = useRef(new Set());
-
-    /*
-    ============================================================
-    SCROLL SPEED
-    ============================================================
-    */
-
-    const previousScrollY = useRef(0);
-    const previousScrollTime = useRef(performance.now());
-
-    const lastPreloadFrame = useRef(1);
 
     /*
     ============================================================
@@ -152,7 +97,12 @@ export default function Home() {
 
                 imageCache.current[frameNumber - 1] = image;
 
-                setLoadedFrames((previous) => previous + 1);
+                setLoadedFrames((previous) => {
+                    return Math.min(
+                        TOTAL_FRAMES,
+                        previous + 1
+                    );
+                });
 
                 resolve();
             };
@@ -160,8 +110,18 @@ export default function Home() {
             image.onerror = () => {
                 loadingFrames.current.delete(frameNumber);
 
+                console.error(
+                    `Failed to load frame: ${frameNumber}`,
+                    getFramePath(frameNumber)
+                );
+
                 if (!cancelledRef.current) {
-                    setLoadedFrames((previous) => previous + 1);
+                    setLoadedFrames((previous) => {
+                        return Math.min(
+                            TOTAL_FRAMES,
+                            previous + 1
+                        );
+                    });
                 }
 
                 resolve();
@@ -173,244 +133,48 @@ export default function Home() {
 
     /*
     ============================================================
-    BATCH CALCULATION
+    LOAD ALL FRAMES
     ============================================================
     */
 
-    const getBatchRange = (batchNumber) => {
-        if (batchNumber === 0) {
-            return {
-                start: 1,
-                end: INITIAL_FRAMES,
-            };
-        }
-
-        const start =
-            INITIAL_FRAMES +
-            (batchNumber - 1) * BATCH_SIZE +
-            1;
-
-        const end = Math.min(
-            TOTAL_FRAMES,
-            start + BATCH_SIZE - 1
-        );
-
-        return {
-            start,
-            end,
-        };
-    };
-
-    /*
-    ============================================================
-    GET BATCH NUMBER
-    ============================================================
-    */
-
-    const getBatchNumber = (frameNumber) => {
-        if (frameNumber <= INITIAL_FRAMES) {
-            return 0;
-        }
-
-        return Math.ceil(
-            (frameNumber - INITIAL_FRAMES) / BATCH_SIZE
-        );
-    };
-
-    /*
-    ============================================================
-    TOTAL BATCHES
-    ============================================================
-    */
-
-    const getTotalBatches = () => {
-        return Math.ceil(
-            (TOTAL_FRAMES - INITIAL_FRAMES) / BATCH_SIZE
-        );
-    };
-
-    /*
-    ============================================================
-    LOAD BATCH
-    ============================================================
-    */
-
-    const loadBatch = async (batchNumber) => {
-        if (
-            batchNumber < 0 ||
-            batchNumber > getTotalBatches() ||
-            cancelledRef.current
-        ) {
-            return;
-        }
-
+    const loadAllFrames = async () => {
         /*
-        Already completely loaded.
+        Create array:
+
+        1, 2, 3 ... 695
         */
 
-        if (loadedBatches.current.has(batchNumber)) {
-            return;
-        }
+        const frames = Array.from(
+            { length: TOTAL_FRAMES },
+            (_, index) => index + 1
+        );
 
         /*
-        Already downloading.
-        */
+        ========================================================
+        LOAD EVERYTHING CONCURRENTLY
+        ========================================================
 
-        if (loadingBatches.current.has(batchNumber)) {
-            return;
-        }
-
-        loadingBatches.current.add(batchNumber);
-
-        const { start, end } = getBatchRange(batchNumber);
-
-        const frames = [];
-
-        for (let i = start; i <= end; i++) {
-            frames.push(i);
-        }
-
-        /*
-        Load entire batch concurrently.
+        All 695 image requests are started together.
+        The browser will internally manage the actual
+        network concurrency.
         */
 
         await Promise.all(
-            frames.map((frameNumber) => loadFrame(frameNumber))
+            frames.map((frameNumber) =>
+                loadFrame(frameNumber)
+            )
         );
 
-        loadingBatches.current.delete(batchNumber);
-
-        if (!cancelledRef.current) {
-            loadedBatches.current.add(batchNumber);
-        }
-    };
-
-    /*
-    ============================================================
-    LOAD BATCH AROUND FRAME
-    ============================================================
-    */
-
-    const loadBatchAroundFrame = (
-        frameNumber,
-        radius = 1
-    ) => {
-        const centerBatch = getBatchNumber(frameNumber);
-
-        const totalBatches = getTotalBatches();
-
-        /*
-        Destination batch first.
-        */
-
-        loadBatch(centerBatch);
-
-        /*
-        Then nearby batches.
-        */
-
-        for (
-            let offset = 1;
-            offset <= radius;
-            offset++
-        ) {
-            const forwardBatch = centerBatch + offset;
-            const backwardBatch = centerBatch - offset;
-
-            if (forwardBatch <= totalBatches) {
-                loadBatch(forwardBatch);
-            }
-
-            if (backwardBatch >= 1) {
-                loadBatch(backwardBatch);
-            }
-        }
-    };
-
-    /*
-    ============================================================
-    NORMAL PRELOAD
-    ============================================================
-    */
-
-    const preloadNextBatch = (currentFrameNumber) => {
-        const totalBatches = getTotalBatches();
-
-        /*
-        Normal next-batch preload.
-        */
-
-        const triggerFrame =
-            currentFrameNumber + LOAD_TRIGGER;
-
-        const batchNumber =
-            getBatchNumber(triggerFrame);
-
-        if (
-            batchNumber > 0 &&
-            batchNumber <= totalBatches
-        ) {
-            loadBatch(batchNumber);
-        }
-
-        /*
-        ========================================================
-        FINAL BATCH SAFETY
-        ========================================================
-
-        The final batch is:
-
-        651 → 695
-
-        Start loading it when the animation reaches
-        approximately frame 615.
-
-        This guarantees the last frames are requested
-        before the user reaches them.
-        */
-
-        if (
-            currentFrameNumber >=
-            TOTAL_FRAMES - FINAL_BATCH_TRIGGER
-        ) {
-            loadBatch(totalBatches);
-        }
-    };
-
-    /*
-    ============================================================
-    FAST SCROLL PRELOAD
-    ============================================================
-    */
-
-    const handleFastScrollPreload = (requestedFrame) => {
-        const previous = lastPreloadFrame.current;
-
-        const distance = Math.abs(
-            requestedFrame - previous
-        );
-
-        /*
-        Nothing significant changed.
-        */
-
-        if (distance < FAST_SCROLL_DISTANCE) {
+        if (cancelledRef.current) {
             return;
         }
 
-        lastPreloadFrame.current = requestedFrame;
-
         /*
-        Fast movement detected.
-
-        Load destination batch
-        + neighboring batches.
+        Make sure all frames are available before
+        displaying the website.
         */
 
-        loadBatchAroundFrame(
-            requestedFrame,
-            FAST_SCROLL_BATCHES
-        );
+        setIsReady(true);
     };
 
     /*
@@ -422,37 +186,7 @@ export default function Home() {
     useEffect(() => {
         cancelledRef.current = false;
 
-        const startInitialLoad = async () => {
-            /*
-            Load first 100 frames.
-            */
-
-            await loadBatch(0);
-
-            if (cancelledRef.current) {
-                return;
-            }
-
-            /*
-            Website can now appear.
-            */
-
-            setIsReady(true);
-
-            /*
-            IMPORTANT:
-
-            Immediately start loading the next batch
-            after the first 100 frames.
-
-            This prevents the user from reaching
-            frame 101 before batch 1 has started.
-            */
-
-            loadBatch(1);
-        };
-
-        startInitialLoad();
+        loadAllFrames();
 
         return () => {
             cancelledRef.current = true;
@@ -481,7 +215,7 @@ export default function Home() {
 
     /*
     ============================================================
-    LOCK PAGE UNTIL FIRST 100 FRAMES
+    LOCK PAGE UNTIL ALL FRAMES ARE LOADED
     ============================================================
     */
 
@@ -524,27 +258,6 @@ export default function Home() {
 
             const scrollY = window.scrollY;
 
-            const now = performance.now();
-
-            const deltaY = Math.abs(
-                scrollY - previousScrollY.current
-            );
-
-            const deltaTime = Math.max(
-                1,
-                now - previousScrollTime.current
-            );
-
-            /*
-            Pixels per millisecond.
-            */
-
-            const scrollVelocity =
-                deltaY / deltaTime;
-
-            previousScrollY.current = scrollY;
-            previousScrollTime.current = now;
-
             const progress = Math.max(
                 0,
                 Math.min(
@@ -555,25 +268,11 @@ export default function Home() {
 
             const calculatedFrame =
                 1 +
-                progress * (TOTAL_FRAMES - 1);
+                progress *
+                    (TOTAL_FRAMES - 1);
 
-            targetFrame.current = calculatedFrame;
-
-            /*
-            ====================================================
-            FAST SCROLL DETECTION
-            ====================================================
-            */
-
-            const isFastScroll =
-                deltaY > FAST_SCROLL_DISTANCE ||
-                scrollVelocity > 1.2;
-
-            if (isFastScroll) {
-                handleFastScrollPreload(
-                    Math.round(calculatedFrame)
-                );
-            }
+            targetFrame.current =
+                calculatedFrame;
         };
 
         /*
@@ -610,17 +309,9 @@ export default function Home() {
             );
 
             /*
-            ====================================================
-            NORMAL PRELOADING
-            ====================================================
-            */
-
-            preloadNextBatch(requestedFrame);
-
-            /*
-            ====================================================
-            ONLY SHOW LOADED FRAME
-            ====================================================
+            Since ALL frames are already loaded,
+            we don't need to check for missing
+            frames or preload anything.
             */
 
             if (
@@ -635,12 +326,16 @@ export default function Home() {
                     lastFrame.current =
                         requestedFrame;
 
-                    setFrame(requestedFrame);
+                    setFrame(
+                        requestedFrame
+                    );
                 }
             }
 
             rafRef.current =
-                requestAnimationFrame(animate);
+                requestAnimationFrame(
+                    animate
+                );
         };
 
         window.addEventListener(
@@ -654,7 +349,9 @@ export default function Home() {
         handleScroll();
 
         rafRef.current =
-            requestAnimationFrame(animate);
+            requestAnimationFrame(
+                animate
+            );
 
         return () => {
             window.removeEventListener(
@@ -677,7 +374,9 @@ export default function Home() {
     */
 
     const currentImage =
-        imageCache.current[frame - 1];
+        imageCache.current[
+            frame - 1
+        ];
 
     const currentImageSrc =
         currentImage?.src ||
@@ -689,17 +388,16 @@ export default function Home() {
     ============================================================
     */
 
-    const loadingPercentage = Math.min(
-        100,
-        Math.round(
-            (
-                Math.min(
-                    loadedFrames,
-                    INITIAL_FRAMES
-                ) / INITIAL_FRAMES
-            ) * 100
-        )
-    );
+    const loadingPercentage =
+        Math.min(
+            100,
+            Math.round(
+                (
+                    loadedFrames /
+                    TOTAL_FRAMES
+                ) * 100
+            )
+        );
 
     /*
     ============================================================
@@ -883,7 +581,8 @@ export default function Home() {
                                         transition={{
                                             duration: 0.8,
                                             delay:
-                                                index * 0.22,
+                                                index *
+                                                0.22,
                                             ease: [
                                                 0.16,
                                                 1,
@@ -928,12 +627,18 @@ export default function Home() {
 
                                             <div className="mt-2 flex items-center gap-2">
                                                 {item.points.map(
-                                                    (point) => (
+                                                    (
+                                                        point
+                                                    ) => (
                                                         <span
-                                                            key={point}
+                                                            key={
+                                                                point
+                                                            }
                                                             className="rounded-full border border-cyan-300/15 bg-cyan-400/[0.06] px-2.5 py-1 text-[10px] font-medium text-cyan-100/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                         >
-                                                            {point}
+                                                            {
+                                                                point
+                                                            }
                                                         </span>
                                                     )
                                                 )}
@@ -980,7 +685,9 @@ export default function Home() {
                             animate={{
                                 opacity: Math.max(
                                     0,
-                                    1 - frame / 35
+                                    1 -
+                                        frame /
+                                            35
                                 ),
                                 x: Math.min(
                                     60,
@@ -1035,7 +742,11 @@ export default function Home() {
                             <div className="relative flex h-11 w-7 items-start justify-center overflow-hidden rounded-full border border-white/30 bg-white/5 p-1.5 shadow-[0_0_30px_rgba(255,255,255,0.08)]">
                                 <motion.div
                                     animate={{
-                                        y: [0, 19, 0],
+                                        y: [
+                                            0,
+                                            19,
+                                            0,
+                                        ],
                                         opacity: [
                                             1,
                                             0.25,
