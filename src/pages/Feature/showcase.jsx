@@ -3,11 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 
-import Saloon from "../../Images/website/Salons.jpg";
-import Clinic from "../../Images/website/Clinics.jpg";
-import Consultants from "../../Images/website/Consultants.jpg";
-import Fitness from "../../Images/website/Fitness.jpg";
-import Education from "../../Images/website/Education.jpg";
+import Saloon from "../../Images/website/Salons.webp";
+import Clinic from "../../Images/website/Clinics.webp";
+import Consultants from "../../Images/website/Consultants.webp";
+import Fitness from "../../Images/website/Fitness.webp";
+import Education from "../../Images/website/Education.webp";
 
 const features = [
     {
