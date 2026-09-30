@@ -13,265 +13,188 @@ import {
 
 export default function Home() {
 
-    const TOTAL_FRAMES = 695;
 
-    const [frame, setFrame] = useState(1);
-    const [loadedFrames, setLoadedFrames] = useState(0);
-    const [isReady, setIsReady] = useState(false);
+ const TOTAL_FRAMES = 695;
+const INITIAL_FRAMES = 100;
+const BATCH_SIZE = 40;
 
-    const targetFrame = useRef(1);
-    const currentFrame = useRef(1);
-    const lastFrame = useRef(1);
-    const rafRef = useRef(null);
+const [frame, setFrame] = useState(1);
+const [loadedFrames, setLoadedFrames] = useState(0);
+const [isReady, setIsReady] = useState(false);
 
-    const imageCache = useRef([]);
+const targetFrame = useRef(1);
+const currentFrame = useRef(1);
+const lastFrame = useRef(1);
+const rafRef = useRef(null);
 
-    const getFramePath = (frameNumber) => {
-        return `/frames/frame_${String(frameNumber).padStart(4, "0")}.jpg`;
+const imageCache = useRef([]);
+
+const getFramePath = (frameNumber) => {
+    return `/frames/frame_${String(frameNumber).padStart(4, "0")}.jpg`;
+};
+
+
+/*
+|--------------------------------------------------------------------------
+| LOCK SCROLL WHILE INITIAL 100 FRAMES LOAD
+|--------------------------------------------------------------------------
+*/
+
+useEffect(() => {
+
+    if (isReady) return;
+
+    window.scrollTo(0, 0);
+
+    const originalOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    const preventScroll = (event) => {
+        event.preventDefault();
+    };
+
+    const preventKeys = (event) => {
+
+        const blockedKeys = [
+            "ArrowUp",
+            "ArrowDown",
+            "PageUp",
+            "PageDown",
+            "Home",
+            "End",
+            " ",
+        ];
+
+        if (blockedKeys.includes(event.key)) {
+            event.preventDefault();
+        }
+
+    };
+
+    window.addEventListener("wheel", preventScroll, {
+        passive: false,
+    });
+
+    window.addEventListener("touchmove", preventScroll, {
+        passive: false,
+    });
+
+    window.addEventListener("keydown", preventKeys);
+
+    return () => {
+
+        document.body.style.overflow = originalOverflow;
+        document.documentElement.style.overflow = originalHtmlOverflow;
+
+        window.removeEventListener("wheel", preventScroll);
+        window.removeEventListener("touchmove", preventScroll);
+        window.removeEventListener("keydown", preventKeys);
+
+    };
+
+}, [isReady]);
+
+
+/*
+|--------------------------------------------------------------------------
+| FRAME LOADER
+|--------------------------------------------------------------------------
+*/
+
+useEffect(() => {
+
+    let cancelled = false;
+
+    imageCache.current = new Array(TOTAL_FRAMES);
+
+    const loadFrame = (frameNumber) => {
+
+        return new Promise((resolve) => {
+
+            const image = new Image();
+
+            image.decoding = "async";
+
+            image.onload = async () => {
+
+                try {
+
+                    if (image.decode) {
+                        await image.decode();
+                    }
+
+                } catch {
+                    // Ignore decode errors
+                }
+
+                if (cancelled) {
+                    resolve();
+                    return;
+                }
+
+                imageCache.current[frameNumber - 1] = image;
+
+                setLoadedFrames((previous) => previous + 1);
+
+                resolve();
+
+            };
+
+            image.onerror = () => {
+
+                if (!cancelled) {
+                    setLoadedFrames((previous) => previous + 1);
+                }
+
+                resolve();
+
+            };
+
+            image.src = getFramePath(frameNumber);
+
+        });
+
     };
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | LOCK SCROLL WHILE LOADING
-    |--------------------------------------------------------------------------
-    */
-
-    useEffect(() => {
-
-        if (isReady) return;
-
-        // Always force page to the beginning
-        window.scrollTo(0, 0);
-
-        const originalOverflow = document.body.style.overflow;
-        const originalHtmlOverflow =
-            document.documentElement.style.overflow;
-
-        document.body.style.overflow = "hidden";
-        document.documentElement.style.overflow = "hidden";
-
-        const preventScroll = (event) => {
-            event.preventDefault();
-        };
-
-        const preventKeys = (event) => {
-
-            const blockedKeys = [
-                "ArrowUp",
-                "ArrowDown",
-                "PageUp",
-                "PageDown",
-                "Home",
-                "End",
-                " ",
-            ];
-
-            if (blockedKeys.includes(event.key)) {
-                event.preventDefault();
-            }
-
-        };
-
-        window.addEventListener(
-            "wheel",
-            preventScroll,
-            { passive: false }
-        );
-
-        window.addEventListener(
-            "touchmove",
-            preventScroll,
-            { passive: false }
-        );
-
-        window.addEventListener(
-            "keydown",
-            preventKeys
-        );
-
-        return () => {
-
-            document.body.style.overflow =
-                originalOverflow;
-
-            document.documentElement.style.overflow =
-                originalHtmlOverflow;
-
-            window.removeEventListener(
-                "wheel",
-                preventScroll
-            );
-
-            window.removeEventListener(
-                "touchmove",
-                preventScroll
-            );
-
-            window.removeEventListener(
-                "keydown",
-                preventKeys
-            );
-
-        };
-
-    }, [isReady]);
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOAD ALL FRAMES
-    |--------------------------------------------------------------------------
-    */
-
-    useEffect(() => {
-
-        let cancelled = false;
-
-        const loadAllFrames = async () => {
-
-            imageCache.current =
-                new Array(TOTAL_FRAMES);
-
-            const promises = Array.from(
-                { length: TOTAL_FRAMES },
-                (_, index) => {
-
-                    const frameNumber =
-                        index + 1;
-
-                    return new Promise((resolve) => {
-
-                        const image = new Image();
-
-                        image.decoding = "async";
-
-                        image.onload = async () => {
-
-                            try {
-
-                                if (image.decode) {
-                                    await image.decode();
-                                }
-
-                            } catch {
-                                // Ignore decode errors
-                            }
-
-                            imageCache.current[
-                                frameNumber - 1
-                            ] = image;
-
-                            if (!cancelled) {
-
-                                setLoadedFrames(
-                                    previous =>
-                                        previous + 1
-                                );
-
-                            }
-
-                            resolve();
-
-                        };
-
-                        image.onerror = () => {
-
-                            if (!cancelled) {
-
-                                setLoadedFrames(
-                                    previous =>
-                                        previous + 1
-                                );
-
-                            }
-
-                            resolve();
-
-                        };
-
-                        image.src =
-                            getFramePath(
-                                frameNumber
-                            );
-
-                    });
-
-                }
-            );
-
-            await Promise.all(promises);
-
-            if (cancelled) return;
-
-            setLoadedFrames(TOTAL_FRAMES);
-
-            /*
-             * Make sure the page is still at
-             * the beginning before starting.
-             */
-            window.scrollTo({
-                top: 0,
-                left: 0,
-                behavior: "instant",
-            });
-
-            targetFrame.current = 1;
-            currentFrame.current = 1;
-            lastFrame.current = 1;
-
-            setFrame(1);
-
-            /*
-             * Give the loader a tiny moment to
-             * display 100%.
-             */
-            setTimeout(() => {
-
-                if (cancelled) return;
-
-                // Force start position again
-                window.scrollTo({
-                    top: 0,
-                    left: 0,
-                    behavior: "instant",
-                });
-
-                targetFrame.current = 1;
-                currentFrame.current = 1;
-                lastFrame.current = 1;
-
-                setFrame(1);
-
-                setIsReady(true);
-
-            }, 500);
-
-        };
-
-        loadAllFrames();
-
-        return () => {
-            cancelled = true;
-        };
-
-    }, [TOTAL_FRAMES]);
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SCROLL → TARGET FRAME
-    |--------------------------------------------------------------------------
-    */
-
-    useEffect(() => {
-
-        if (!isReady) return;
+    const loadFrames = async () => {
 
         /*
-         * Important:
-         * Always start from scroll position 0.
+         * ================================================================
+         * STEP 1
+         * Load the first 100 frames.
+         * ================================================================
          */
+
+        const initialPromises = [];
+
+        for (
+            let frameNumber = 1;
+            frameNumber <= Math.min(INITIAL_FRAMES, TOTAL_FRAMES);
+            frameNumber++
+        ) {
+
+            initialPromises.push(
+                loadFrame(frameNumber)
+            );
+
+        }
+
+        await Promise.all(initialPromises);
+
+        if (cancelled) return;
+
+
+        /*
+         * ================================================================
+         * STEP 2
+         * Reset everything to frame 1.
+         * ================================================================
+         */
+
         window.scrollTo({
             top: 0,
             left: 0,
@@ -284,150 +207,234 @@ export default function Home() {
 
         setFrame(1);
 
-        const handleScroll = () => {
-
-            const maxScroll =
-                document.documentElement.scrollHeight -
-                window.innerHeight;
-
-            if (maxScroll <= 0) return;
-
-            const progress =
-                window.scrollY / maxScroll;
-
-            const clampedProgress =
-                Math.min(
-                    Math.max(progress, 0),
-                    1
-                );
-
-            targetFrame.current =
-                1 +
-                clampedProgress *
-                (TOTAL_FRAMES - 1);
-
-        };
-
-        window.addEventListener(
-            "scroll",
-            handleScroll,
-            {
-                passive: true,
-            }
-        );
 
         /*
-         * Explicitly initialize at frame 1.
+         * ================================================================
+         * STEP 3
+         * START THE WEBSITE
+         *
+         * We DO NOT wait for frames 101–695.
+         * ================================================================
          */
-        handleScroll();
 
-        return () => {
+        setIsReady(true);
 
-            window.removeEventListener(
-                "scroll",
-                handleScroll
+
+        /*
+         * ================================================================
+         * STEP 4
+         * LOAD REMAINING FRAMES IN BACKGROUND.
+         * ================================================================
+         */
+
+        let startFrame = INITIAL_FRAMES + 1;
+
+        while (
+            startFrame <= TOTAL_FRAMES &&
+            !cancelled
+        ) {
+
+            const endFrame = Math.min(
+                startFrame + BATCH_SIZE - 1,
+                TOTAL_FRAMES
             );
 
-        };
+            const batchPromises = [];
 
-    }, [isReady, TOTAL_FRAMES]);
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SMOOTH FRAME ANIMATION
-    |--------------------------------------------------------------------------
-    */
-
-    useEffect(() => {
-
-        if (!isReady) return;
-
-        const animate = () => {
-
-            const difference =
-                targetFrame.current -
-                currentFrame.current;
-
-            currentFrame.current +=
-                difference * 0.10;
-
-            const nextFrame =
-                Math.round(
-                    currentFrame.current
-                );
-
-            if (
-                nextFrame !==
-                lastFrame.current
+            for (
+                let frameNumber = startFrame;
+                frameNumber <= endFrame;
+                frameNumber++
             ) {
 
-                lastFrame.current =
-                    nextFrame;
-
-                setFrame(nextFrame);
+                batchPromises.push(
+                    loadFrame(frameNumber)
+                );
 
             }
 
-            rafRef.current =
-                requestAnimationFrame(
-                    animate
-                );
+            await Promise.all(batchPromises);
 
-        };
+            /*
+             * Give the browser a small break between batches.
+             */
+
+            await new Promise((resolve) => {
+                setTimeout(resolve, 20);
+            });
+
+            startFrame = endFrame + 1;
+
+        }
+
+    };
+
+
+    loadFrames();
+
+    return () => {
+        cancelled = true;
+    };
+
+}, []);
+
+
+/*
+|--------------------------------------------------------------------------
+| SCROLL → TARGET FRAME
+|--------------------------------------------------------------------------
+*/
+
+useEffect(() => {
+
+    if (!isReady) return;
+
+    window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: "instant",
+    });
+
+    targetFrame.current = 1;
+    currentFrame.current = 1;
+    lastFrame.current = 1;
+
+    setFrame(1);
+
+    const handleScroll = () => {
+
+        const maxScroll =
+            document.documentElement.scrollHeight -
+            window.innerHeight;
+
+        if (maxScroll <= 0) return;
+
+        const progress =
+            window.scrollY / maxScroll;
+
+        const clampedProgress =
+            Math.min(
+                Math.max(progress, 0),
+                1
+            );
+
+        targetFrame.current =
+            1 +
+            clampedProgress *
+            (TOTAL_FRAMES - 1);
+
+    };
+
+    window.addEventListener("scroll", handleScroll, {
+        passive: true,
+    });
+
+    handleScroll();
+
+    return () => {
+
+        window.removeEventListener(
+            "scroll",
+            handleScroll
+        );
+
+    };
+
+}, [isReady]);
+
+
+/*
+|--------------------------------------------------------------------------
+| SMOOTH FRAME ANIMATION
+|--------------------------------------------------------------------------
+*/
+
+useEffect(() => {
+
+    if (!isReady) return;
+
+    const animate = () => {
+
+        const difference =
+            targetFrame.current -
+            currentFrame.current;
+
+        currentFrame.current +=
+            difference * 0.10;
+
+        const nextFrame =
+            Math.round(
+                currentFrame.current
+            );
+
+        if (
+            nextFrame !== lastFrame.current
+        ) {
+
+            lastFrame.current =
+                nextFrame;
+
+            setFrame(nextFrame);
+
+        }
 
         rafRef.current =
             requestAnimationFrame(
                 animate
             );
 
-        return () => {
+    };
 
-            if (rafRef.current) {
+    rafRef.current =
+        requestAnimationFrame(
+            animate
+        );
 
-                cancelAnimationFrame(
-                    rafRef.current
-                );
+    return () => {
 
-            }
+        if (rafRef.current) {
+            cancelAnimationFrame(
+                rafRef.current
+            );
+        }
 
-        };
+    };
 
-    }, [isReady, TOTAL_FRAMES]);
+}, [isReady]);
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | LOADING
-    |--------------------------------------------------------------------------
-    */
+/*
+|--------------------------------------------------------------------------
+| LOADING PERCENTAGE
+|--------------------------------------------------------------------------
+*/
 
-    const loadingPercentage =
-        Math.min(
-            Math.round(
-                (loadedFrames /
-                    TOTAL_FRAMES) *
-                100
-            ),
+const loadingPercentage =
+    Math.min(
+        Math.round(
+            (Math.min(loadedFrames, INITIAL_FRAMES) /
+                INITIAL_FRAMES) *
             100
-        );
+        ),
+        100
+    );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | SHOW LOADER
-    |--------------------------------------------------------------------------
-    */
+/*
+|--------------------------------------------------------------------------
+| SHOW LOADER
+|--------------------------------------------------------------------------
+*/
 
-    if (!isReady) {
+if (!isReady) {
 
-        return (
-            <ExperienceLoader
-                progress={loadingPercentage}
-            />
-        );
+    return (
+        <ExperienceLoader
+            progress={loadingPercentage}
+        />
+    );
 
-    }
+}
 
 
     /*
